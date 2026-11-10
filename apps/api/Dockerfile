@@ -15,4 +15,4 @@ RUN npm install --omit=dev
 COPY --from=build /app/apps/api/dist ./dist
 COPY apps/api/src/database/migrations ./dist/database/migrations
 EXPOSE 4000
-CMD ["sh", "-c", "npm run migrate && node dist/main"]
+CMD ["sh", "-c", "node dist/database/migrate.js && node dist/main"]
