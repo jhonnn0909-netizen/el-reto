@@ -65,7 +65,11 @@ su aprobación. Cada duda incluye la recomendación del equipo y su estado.
 - **Recomendación:** En el MVP solo compartir por enlace (WhatsApp/
   Facebook) sin SDK ni login social. El login con Facebook y las
   notificaciones por WhatsApp quedan para una fase posterior.
-- **Estado:** ABIERTA (análisis en curso en la documentación).
+- **Estado:** DECIDIDA por Jhon 2026-11-10 (ver D13): autorizó TODOS
+  los registros automáticos — Google, Facebook, Apple (iCloud) y
+  cualquier otro posible. Compartir por enlace sigue; el login
+  social pasa a implementarse. Las notificaciones por WhatsApp
+  siguen para una fase posterior.
 
 ### D9. Integración con GitHub Codespaces
 - **Duda:** ¿Cómo se usará Codespaces con el proyecto (desarrollo,
@@ -134,6 +138,27 @@ su aprobación. Cada duda incluye la recomendación del equipo y su estado.
 - **Estado:** EN CONSTRUCCIÓN con este estilo aprobado; la
   organización sigue la muestra v7.
 
+### D13. Registro automático con Google, Facebook y Apple (iCloud)
+- **Decisión de Jhon (2026-11-10):** la aplicación debe permitir
+  TODOS los tipos de registro automático que se puedan hacer:
+  Google, Facebook, cuenta de iCloud (Iniciar sesión con Apple) y
+  cualquier otro registro automático posible. Jhon autorizó
+  expresamente que se hagan todas esas modificaciones.
+- **Estado actual:** el código OAuth ya existe en el MVP, pero
+  responde 503 sin credenciales de cliente. Para activarlo hacen
+  falta las credenciales de las cuentas de Jhon: cliente OAuth de
+  Google (Google Cloud) y aplicación de Facebook (Meta for
+  Developers). Apple (Iniciar sesión con Apple) exige además la
+  membresía del Apple Developer Program (de pago); verificar si
+  Jhon la tiene antes de prometerla.
+- **Secuencia:** se aplica DESPUÉS de que termine la subida y la
+  prueba en curso (no se toca el código mientras el navegador lo
+  está subiendo); luego se actualiza el repositorio y se vuelve a
+  probar, y la auditoría exhaustiva incluye los nuevos botones de
+  registro automático.
+- **Estado:** APROBADA por Jhon; PENDIENTE de implementación y de
+  credenciales.
+
 ## Mejoras guardadas en memoria — estado en el MVP (pedido de Jhon 2026-11-10)
 
 Orden fijado por Jhon: primero que el juego en vivo funcione; luego
@@ -145,7 +170,7 @@ nada.
 |---|---|---|
 | 1 | Ranking de victorias con rachas, visible en la plataforma | MVP (rachas actual/mejor en `rankings`, visibles en /ranking y perfil) |
 | 2 | Nombres de usuario únicos | MVP (unicidad sin distinción de mayúsculas) |
-| 3 | Entrar con Gmail o Facebook (Gmail primero) | MVP código OAuth; PENDIENTE credenciales de cliente de Jhon (Google/Facebook) para activarlo |
+| 3 | Entrar con Google, Facebook y Apple (iCloud) y cualquier otro registro automático | APROBADO por Jhon 2026-11-10 (D13); código OAuth en el MVP; PENDIENTE credenciales de cliente de Jhon (Google/Facebook/Apple) para activarlo |
 | 4 | Más juegos rápidos: damas, damas chinas, conecta cuatro | Motor modular MVP (interfaz `GameEngine` + registro); RPS completo primero; los otros tres como `COMING_SOON` (SIGUIENTE FASE, sin lógica aún) |
 | 5 | Torneos relámpago de 8 jugadores | SIGUIENTE FASE (esquema de torneos listo en V004, sin endpoints ni lógica) |
 | 6 | Tarjeta del ganador para compartir por WhatsApp y Facebook | MVP (componente WinnerCard + enlaces wa.me y sharer de Facebook) |

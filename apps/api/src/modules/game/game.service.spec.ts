@@ -252,13 +252,27 @@ class FakeDb {
     if (sql.includes('SELECT COUNT(*)::text AS count FROM matches m WHERE')) {
       return ok([{ count: String(this.matches.length) }]);
     }
+    if (sql.includes('SELECT id FROM matches WHERE challenge_id = $1')) {
+      const found = this.matches
+        .filter((m) => m.challenge_id === params[0])
+        .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+      return ok(found.slice(0, 1).map((m) => ({ id: m.id })));
+    }
     if (sql.includes('FROM matches m')) {
       const list = this.matches
         .filter((m) => m.player1_id === params[0] || m.player2_id === params[0])
         .map((m) => {
           const oppId = m.player1_id === params[0] ? m.player2_id : m.player1_id;
           const opp = this.users.find((u) => u.id === oppId);
-          return { ...m, opponent_username: opp?.username ?? '', opponent_display_name: opp?.display_name ?? '' };
+          const p1 = this.users.find((u) => u.id === m.player1_id);
+          const p2 = this.users.find((u) => u.id === m.player2_id);
+          return {
+            ...m,
+            opponent_username: opp?.username ?? '',
+            opponent_display_name: opp?.display_name ?? '',
+            player1_username: p1?.username ?? '',
+            player2_username: p2?.username ?? '',
+          };
         });
       return ok(list);
     }
@@ -625,6 +639,14 @@ describe('GameService', () => {
     const room = await service.getRoomState(matchId);
     expect(JSON.stringify(room)).not.toContain('ROCK');
     expect(JSON.stringify(room)).not.toContain('PAPER');
+    // Campos planos del tipo Match del cliente web: la página de
+    // partida los usa para decidir jugador vs espectador.
+    expect((brunoState as any).player1Id).toBe('u1');
+    expect((brunoState as any).player2Id).toBe('u2');
+    expect((brunoState as any).player1Username).toBe('ana');
+    expect((brunoState as any).player2Username).toBe('bruno');
+    expect((brunoState as any).score1).toBe(0);
+    expect((brunoState as any).score2).toBe(0);
   });
 
   it('cancelar antes de empezar libera las reservas', async () => {
@@ -858,5 +880,13 @@ describe('GameService', () => {
     expect(history.items).toHaveLength(1);
     expect(history.items[0].result).toBe('WIN');
     expect(history.items[0].opponent.username).toBe('bruno');
+    // Campos planos del tipo Match del cliente web (sin ellos la página
+    // de partida trataba a los jugadores como espectadores).
+    expect(history.items[0].player1Id).toBe('u1');
+    expect(history.items[0].player2Id).toBe('u2');
+    expect(history.items[0].player1Username).toBe('ana');
+    expect(history.items[0].player2Username).toBe('bruno');
+    expect(history.items[0].score1).toBe(1);
+    expect(history.items[0].score2).toBe(0);
   });
 });

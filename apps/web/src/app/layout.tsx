@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import Logo from '../components/Logo';
+import HeaderAuth from '../components/HeaderAuth';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -22,7 +23,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="es">
       <body className="min-h-screen bg-reto-bg font-sans text-reto-cream antialiased">
         {/* Barra superior (tableta y escritorio; en móvil solo logo + entrar) */}
-        <header className="border-b border-reto-gold/25 bg-reto-surface/80 backdrop-blur">
+        {/* relative z-20: queda por encima del panel lateral fijo, para que
+            sus enlaces nunca queden tapados por él. */}
+        <header className="relative z-20 border-b border-reto-gold/25 bg-reto-surface/80 backdrop-blur">
           <div className="mx-auto flex max-w-reto items-center justify-between px-4 py-3">
             <Link href="/" className="flex items-center gap-2" aria-label="El Reto — inicio">
               <Logo size={40} />
@@ -35,17 +38,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 </Link>
               ))}
             </nav>
-            <div className="flex items-center gap-3 text-sm">
-              <Link href="/login" className="text-reto-cream/80 hover:text-reto-gold">
-                Entrar
-              </Link>
-              <Link
-                href="/registro"
-                className="rounded-full bg-gradient-to-b from-reto-goldLight via-reto-gold to-reto-goldDark px-4 py-1.5 font-bold text-[#1a1206] shadow-[0_6px_22px_rgba(245,197,66,0.4)]"
-              >
-                Crear cuenta
-              </Link>
-            </div>
+            <HeaderAuth />
           </div>
         </header>
 

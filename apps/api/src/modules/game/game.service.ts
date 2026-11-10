@@ -337,7 +337,8 @@ export class GameService implements OnModuleInit, OnModuleDestroy {
       throw new NotFoundException('CHALLENGE_NOT_FOUND');
     }
     const systemId = await this.getSystemUserId();
-    return toChallengeView(challenge, challenge.creator_id === systemId);
+    const matchId = await this.findMatchIdForChallenge(challenge.id);
+    return toChallengeView(challenge, challenge.creator_id === systemId, matchId);
   }
 
   async getChallengeByInviteCode(user: AuthUser, code: string) {
@@ -349,7 +350,17 @@ export class GameService implements OnModuleInit, OnModuleDestroy {
     const challenge = res.rows[0];
     if (!challenge) throw new NotFoundException('CHALLENGE_NOT_FOUND');
     const systemId = await this.getSystemUserId();
-    return toChallengeView(challenge, challenge.creator_id === systemId);
+    const matchId = await this.findMatchIdForChallenge(challenge.id);
+    return toChallengeView(challenge, challenge.creator_id === systemId, matchId);
+  }
+
+  /** Partida (la más reciente) creada al aceptar un reto, si la hay. */
+  private async findMatchIdForChallenge(challengeId: string): Promise<string | null> {
+    const res = await this.db.query<{ id: string }>(
+      'SELECT id FROM matches WHERE challenge_id = $1 ORDER BY created_at DESC LIMIT 1',
+      [challengeId],
+    );
+    return res.rows[0]?.id ?? null;
   }
 
   /**
@@ -1213,6 +1224,17 @@ export class GameService implements OnModuleInit, OnModuleDestroy {
       status: match.status,
       currentRound: match.current_round,
       score: { player1: match.score1, player2: match.score2 },
+      // Campos planos que espera el cliente web (tipo Match): se derivan
+      // de `players`/`score` para que la página de partida identifique a
+      // los jugadores sin ambigüedad. Antes no existían y llegaban como
+      // undefined, así que todo usuario con sesión se trataba como
+      // espectador y la ronda nunca arrancaba.
+      player1Id: match.player1_id,
+      player2Id: match.player2_id,
+      player1Username: byId.get(match.player1_id)?.username ?? '',
+      player2Username: byId.get(match.player2_id)?.username ?? '',
+      score1: match.score1,
+      score2: match.score2,
       players: [match.player1_id, match.player2_id].map((id) => {
         const u = byId.get(id);
         // Rival provisional del reto diario: se muestra como espera.
@@ -1274,11 +1296,19 @@ export class GameService implements OnModuleInit, OnModuleDestroy {
       params,
     );
     const rowsRes = await this.db.query<
-      MatchRow & { opponent_username: string; opponent_display_name: string }
+      MatchRow & {
+        opponent_username: string;
+        opponent_display_name: string;
+        player1_username: string;
+        player2_username: string;
+      }
     >(
-      `SELECT m.*, opp.username AS opponent_username, opp.display_name AS opponent_display_name
+      `SELECT m.*, opp.username AS opponent_username, opp.display_name AS opponent_display_name,
+              p1.username AS player1_username, p2.username AS player2_username
        FROM matches m
        JOIN users opp ON opp.id = CASE WHEN m.player1_id = $1 THEN m.player2_id ELSE m.player1_id END
+       JOIN users p1 ON p1.id = m.player1_id
+       JOIN users p2 ON p2.id = m.player2_id
        WHERE ${where}
        ORDER BY m.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
       [...params, limit, offset],
@@ -1292,6 +1322,15 @@ export class GameService implements OnModuleInit, OnModuleDestroy {
         stakeCredits: m.stake_credits,
         status: m.status,
         score: { player1: m.score1, player2: m.score2 },
+        // Campos planos del tipo Match del cliente web (ver
+        // buildMatchState): sin ellos el historial mostraba el marcador
+        // como "undefined" y no identificaba al rival.
+        player1Id: m.player1_id,
+        player2Id: m.player2_id,
+        player1Username: m.player1_username,
+        player2Username: m.player2_username,
+        score1: m.score1,
+        score2: m.score2,
         winnerId: m.winner_id,
         opponent: {
           username: m.opponent_username,
@@ -1674,7 +1713,11 @@ export class GameService implements OnModuleInit, OnModuleDestroy {
   }
 }
 
-export function toChallengeView(challenge: ChallengeRow, isDaily: boolean) {
+export function toChallengeView(
+  challenge: ChallengeRow,
+  isDaily: boolean,
+  matchId?: string | null,
+) {
   return {
     id: challenge.id,
     creatorId: challenge.creator_id,
@@ -1687,5 +1730,8 @@ export function toChallengeView(challenge: ChallengeRow, isDaily: boolean) {
     expiresAt: challenge.expires_at,
     createdAt: challenge.created_at,
     daily: isDaily,
+    // Partida creada al aceptar el reto (null mientras está abierto):
+    // la página del reto enlaza a ella cuando ya fue aceptado.
+    matchId: matchId ?? null,
   };
 }

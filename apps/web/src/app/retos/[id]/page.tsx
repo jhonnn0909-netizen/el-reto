@@ -14,7 +14,6 @@ import type { Challenge } from '../../../lib/types';
 import GuestNameForm from '../../../components/GuestNameForm';
 import Modal from '../../../components/Modal';
 import Toast from '../../../components/Toast';
-import EmptyState from '../../../components/EmptyState';
 import { ListSkeleton } from '../../../components/Spinner';
 import { Avatar, Button, PageHeader } from '../../../components/ui';
 import { DemoBadge } from '../../../components/DemoBadge';
@@ -119,7 +118,18 @@ export default function ChallengeDetailPage() {
       )}
 
       {c.status === 'ACCEPTED' && (
-        <EmptyState title="Este reto ya fue aceptado" description="La partida está en curso o terminó." actionLabel="Ver otros retos" actionHref="/retos" />
+        <div className="flex flex-col gap-3 rounded-card border border-reto-gold/40 bg-reto-surface p-4">
+          <p className="text-sm font-semibold">Este reto ya fue aceptado. La partida está en curso o terminó.</p>
+          {c.matchId ? (
+            <Link href={`/partidas/${c.matchId}`}>
+              <Button className="w-full">Ir a la partida</Button>
+            </Link>
+          ) : (
+            <Link href="/retos">
+              <Button variant="secondary" className="w-full">Ver otros retos</Button>
+            </Link>
+          )}
+        </div>
       )}
 
       {confirmCancel && (

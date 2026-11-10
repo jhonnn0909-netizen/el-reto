@@ -102,6 +102,7 @@ describe('AuthService', () => {
         ['SELECT id FROM users WHERE lower(username)', { rows: [] }],
         ['SELECT id FROM users WHERE email', { rows: [] }],
         ['INSERT INTO users', { rows: [created] }],
+        ['INSERT INTO sessions', { rows: [{ id: 'sess-1' }] }],
       ]);
       const result = await service.register({
         username: 'Jhon',
@@ -113,6 +114,9 @@ describe('AuthService', () => {
       expect(result.user.status).toBe('PENDING_VERIFICATION');
       expect('password_hash' in result.user).toBe(false);
       expect('mfa_secret' in result.user).toBe(false);
+      // La sesión queda establecida al registrarse (tokens incluidos).
+      expect(result.accessToken).toBeTruthy();
+      expect(result.refreshToken).toBeTruthy();
       // Se creó el token de verificación (hash, no en claro).
       expect(query.mock.calls.some(([sql]) => sql.includes('INSERT INTO email_verification_tokens'))).toBe(true);
     });
@@ -165,6 +169,22 @@ describe('AuthService', () => {
       expect(payload.sub).toBe('user-1');
       expect(payload.sid).toBe('sess-1');
       expect(payload.role).toBe('USER');
+    });
+
+    it('acepta el nombre de usuario como identificador (sin @)', async () => {
+      const { query } = createDbMock();
+      const { service } = createService(query);
+      const user = userRow({ password_hash: bcrypt.hashSync('Password1', 4) });
+      routeQuery(query, [
+        ...loginRoutes(user),
+        ['SELECT * FROM users WHERE lower(username)', { rows: [user] }],
+      ]);
+      const result = await service.login({ email: 'JHON', password: 'Password1' }, { ip: '10.0.0.1' });
+      expect('mfaRequired' in result).toBe(false);
+      const tokens = result as { accessToken: string; refreshToken: string };
+      expect(tokens.accessToken).toBeTruthy();
+      // La búsqueda por nombre no distingue mayúsculas.
+      expect(query.mock.calls.some(([sql]) => sql.includes('lower(username) = lower($1)'))).toBe(true);
     });
 
     it('contraseña incorrecta → 401 genérico y registra el intento fallido', async () => {

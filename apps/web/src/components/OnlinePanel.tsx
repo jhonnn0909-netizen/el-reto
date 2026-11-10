@@ -1,7 +1,9 @@
 // Panel lateral de personas en línea (muestra v7, APROBADA por Jhon,
 // DESIGN.md §5.1): columna derecha ANGOSTA y compacta de 200 px.
-// - Escritorio (≥ 900 px): FIJA a un lado: position fixed, top 12 px,
-//   right max(16px, calc((100vw - 1080px)/2 + 16px)), z-index 5.
+// - Escritorio (≥ 900 px): FIJA a un lado: position fixed, top 76 px
+//   (por DEBAJO de la cabecera, que mide ~65 px: antes iba a 12 px y
+//   tapaba los enlaces "Entrar"/"Crear cuenta"), right
+//   max(16px, calc((100vw - 1080px)/2 + 16px)), z-index 5.
 //   Siempre visible al hacer scroll.
 // - Teléfono: FIJA ARRIBA (position sticky, top 0, order -1, z-index 5,
 //   fondo #0a0a0a), como en la v7; nunca se pierde al bajar por la
@@ -25,7 +27,7 @@ export default function OnlinePanel({
   return (
     <aside
       aria-label="Personas en línea"
-      className="order-first sticky top-0 z-[5] bg-[#0a0a0a] min-[900px]:order-none min-[900px]:fixed min-[900px]:top-3 min-[900px]:w-[200px] min-[900px]:bg-transparent right-[max(16px,calc((100vw_-_1080px)/2_+_16px))]"
+      className="order-first sticky top-0 z-[5] bg-[#0a0a0a] min-[900px]:order-none min-[900px]:fixed min-[900px]:top-[76px] min-[900px]:w-[200px] min-[900px]:bg-transparent right-[max(16px,calc((100vw_-_1080px)/2_+_16px))]"
     >
       <OnlineList people={people} inviteeName={inviteeName} onChallenge={onChallenge} loading={loading} />
     </aside>

@@ -11,7 +11,7 @@ import { gameApi } from '../../../lib/auth';
 import { apiErrorMessage } from '../../../lib/useApi';
 import { getAccessToken } from '../../../lib/api';
 import { disconnectGameSocket, getGameSocket } from '../../../lib/ws';
-import { getStoredUser, isGuestUser } from '../../../lib/session';
+import { clearStoredUser, getStoredUser, isGuestUser } from '../../../lib/session';
 import { commitHash, randomSecret } from '../../../lib/game';
 import { FORMAT_LABELS } from '../../../lib/game';
 import type { Match, MatchMessage, Move, OnlinePerson, User } from '../../../lib/types';
@@ -50,6 +50,13 @@ export default function MatchPage() {
       setStatus('ok');
       return m;
     } catch (err) {
+      // Sesión caducada (el refresco ya falló dentro de apiFetch y los
+      // tokens están borrados): no hay sesión válida, así que la página
+      // muestra el aviso de inicio de sesión en vez de reintentar en vano.
+      if ((err as { status?: number })?.status === 401) {
+        clearStoredUser();
+        setUser(null);
+      }
       setError(apiErrorMessage(err));
       setStatus('error');
       return null;
@@ -57,7 +64,16 @@ export default function MatchPage() {
   }, [id]);
 
   useEffect(() => {
-    setUser(getStoredUser());
+    const stored = getStoredUser();
+    setUser(stored);
+    // Sin sesión no hay partida que cargar: se muestra directamente el
+    // aviso de inicio de sesión (antes se intentaba la petición, que
+    // fallaba, y la página se quedaba en "Cargando contenido").
+    if (!stored) {
+      setError('Inicia sesión para ver o jugar esta partida.');
+      setStatus('error');
+      return;
+    }
     void load();
     gameApi.presence().then(setPresence).catch(() => setPresence([]));
   }, [load]);
@@ -84,19 +100,25 @@ export default function MatchPage() {
         socket.on('match:committed', (payload: { playerId: string }) => {
           if (payload.playerId !== user.id) setRivalSealed(true);
         });
-        socket.on('round:result', (payload: { moves: { [k: string]: Move }; result: string; score: { score1: number; score2: number } }) => {
-          const myMove = payload.moves[user.id];
-          const rivalId = match.player1Id === user.id ? match.player2Id : match.player1Id;
-          const rivalMove = payload.moves[rivalId];
+        // La API emite las jugadas y el marcador por jugador 1/2
+        // (moves: {player1, player2}, score: {player1, player2}), no por
+        // id de usuario ni como score1/score2. Antes se leía
+        // payload.moves[user.id] y payload.score.score1, ambos undefined:
+        // el resultado de la ronda nunca se mostraba y el marcador
+        // quedaba en "NaN a NaN".
+        socket.on('round:result', (payload: { moves: { player1: Move | null; player2: Move | null }; result: string; score: { player1: number; player2: number } }) => {
+          const amPlayer1 = match.player1Id === user.id;
+          const myMove = amPlayer1 ? payload.moves.player1 : payload.moves.player2;
+          const rivalMove = amPlayer1 ? payload.moves.player2 : payload.moves.player1;
           if (myMove && rivalMove) {
             setRoundResult({ myMove, rivalMove });
             setRivalSealed(false);
           }
-          setMatch((prev) => (prev ? { ...prev, score1: payload.score.score1, score2: payload.score.score2 } : prev));
+          setMatch((prev) => (prev ? { ...prev, score1: payload.score.player1, score2: payload.score.player2 } : prev));
         });
-        socket.on('match:finished', (payload: { winnerId: string; score: { score1: number; score2: number } }) => {
+        socket.on('match:finished', (payload: { winnerId: string; score: { player1: number; player2: number } }) => {
           setMatch((prev) =>
-            prev ? { ...prev, status: 'FINISHED', winnerId: payload.winnerId, score1: payload.score.score1, score2: payload.score.score2 } : prev,
+            prev ? { ...prev, status: 'FINISHED', winnerId: payload.winnerId, score1: payload.score.player1, score2: payload.score.player2 } : prev,
           );
         });
         socket.on('match:message', (msg: MatchMessage) => {
@@ -173,6 +195,35 @@ export default function MatchPage() {
     router.push('/retos');
   }
 
+  // El error va ANTES que la carga: antes, con status 'error' y sin
+  // partida cargada, la rama de carga (condición `!match`) ganaba y la
+  // página se quedaba en "Cargando contenido" para siempre, también
+  // sin sesión. (La condición es solo status: el efecto ya deja
+  // status en 'error' cuando no hay sesión, y en el primer render
+  // `user` aún es null aunque la sesión exista.)
+  if (status === 'error') {
+    return (
+      <div className="mx-auto max-w-lg">
+        <PageHeader title={user ? 'Partida no disponible' : 'Inicia sesión para jugar'} />
+        <div role="alert" className="rounded-card border border-reto-error/50 bg-reto-error/10 p-4">
+          <p className="text-sm">{error ?? 'Inicia sesión para ver esta partida.'}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {!user ? (
+              <>
+                <Link href={`/login?next=/partidas/${id}`}><Button>Iniciar sesión</Button></Link>
+                <Link href="/registro"><Button variant="secondary">Crear cuenta</Button></Link>
+              </>
+            ) : (
+              <>
+                <Button variant="secondary" onClick={() => void load()}>Reintentar</Button>
+                <Link href="/retos"><Button variant="secondary">Ver retos</Button></Link>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
   if (status === 'loading' || !match) {
     return (
       <div className="mx-auto max-w-2xl">
@@ -180,15 +231,18 @@ export default function MatchPage() {
       </div>
     );
   }
-  if (status === 'error' || !user) {
+  // Red de seguridad (y estrechamiento de tipos): sin sesión el efecto
+  // ya dejó status en 'error', así que aquí siempre hay usuario; si
+  // llegara a no haberlo, se ofrece iniciar sesión en vez de romper.
+  if (!user) {
     return (
       <div className="mx-auto max-w-lg">
-        <PageHeader title="Partida no disponible" />
+        <PageHeader title="Inicia sesión para jugar" />
         <div role="alert" className="rounded-card border border-reto-error/50 bg-reto-error/10 p-4">
-          <p className="text-sm">{error ?? 'Inicia sesión para ver esta partida.'}</p>
-          <div className="mt-3 flex gap-2">
-            <Button variant="secondary" onClick={() => void load()}>Reintentar</Button>
-            <Link href="/retos"><Button variant="secondary">Ver retos</Button></Link>
+          <p className="text-sm">Inicia sesión para ver o jugar esta partida.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link href={`/login?next=/partidas/${id}`}><Button>Iniciar sesión</Button></Link>
+            <Link href="/registro"><Button variant="secondary">Crear cuenta</Button></Link>
           </div>
         </div>
       </div>

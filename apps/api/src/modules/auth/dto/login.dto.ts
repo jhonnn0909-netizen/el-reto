@@ -1,7 +1,14 @@
 import { IsEmail, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class LoginDto {
-  @IsEmail({}, { message: 'El correo electrónico no es válido.' })
+  /**
+   * Correo electrónico o nombre de usuario. El nombre del campo se
+   * mantiene por compatibilidad con el cliente web; el servicio
+   * distingue por la presencia de '@' (los nombres de usuario no
+   * pueden contenerla, ver isValidUsername).
+   */
+  @IsString()
+  @MinLength(1, { message: 'Escribe tu correo o tu nombre de usuario.' })
   @MaxLength(255)
   email!: string;
 

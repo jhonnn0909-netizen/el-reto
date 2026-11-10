@@ -53,6 +53,8 @@ export interface Challenge {
   format: ChallengeFormat;
   stakeCredits: number;
   status: 'OPEN' | 'ACCEPTED' | 'CANCELLED' | 'EXPIRED' | 'COMPLETED';
+  /** Partida creada al aceptar el reto (null mientras está abierto). */
+  matchId?: string | null;
   expiresAt: string;
   createdAt: string;
 }

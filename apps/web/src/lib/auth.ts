@@ -1,7 +1,7 @@
 // Operaciones de la API agrupadas por módulo (CONTRACTS.md §4).
 // Todas usan `api` (fetch con Bearer + refresco automático).
 import { api, clearTokens, setTokens } from './api';
-import { setStoredUser } from './session';
+import { clearStoredUser, setStoredUser } from './session';
 import type {
   AppNotification,
   Challenge,
@@ -25,9 +25,23 @@ export interface AuthResponse {
   user: User;
 }
 
+export function notifySessionChange(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('elreto:session'));
+  }
+}
+
 function storeAuth(res: AuthResponse): AuthResponse {
+  // Defensa: si la respuesta no trae tokens (p. ej. un registro que no
+  // inicia sesión), no guardar "undefined" como texto en localStorage:
+  // eso dejaba la sesión rota con "Tu sesión caducó" en la siguiente
+  // petición. Mejor fallar aquí con un error visible.
+  if (!res.accessToken || !res.refreshToken || !res.user) {
+    throw new Error('La respuesta no incluye una sesión válida. Inténtalo de nuevo.');
+  }
   setTokens(res.accessToken, res.refreshToken);
   setStoredUser(res.user);
+  notifySessionChange();
   return res;
 }
 
@@ -49,6 +63,8 @@ export const authApi = {
       await api.post('/auth/logout');
     } finally {
       clearTokens();
+      clearStoredUser();
+      notifySessionChange();
     }
   },
   checkUsername: (username: string) =>

@@ -160,7 +160,7 @@ export class AuthService {
 
   // ---------------------------------------------------------------- registro
 
-  async register(dto: RegisterDto, meta: RequestMeta = {}): Promise<{ user: SafeUser; message: string }> {
+  async register(dto: RegisterDto, meta: RequestMeta = {}): Promise<AuthTokens & { message: string }> {
     validatePasswordPolicy(dto.password);
     const username = dto.username.trim();
     const email = dto.email.trim().toLowerCase();
@@ -195,8 +195,13 @@ export class AuthService {
     await this.grantWelcomeBonusBestEffort(user.id);
     await this.logSecurityEvent(user.id, 'REGISTER', meta);
     this.logDevLink('verificación de correo', user.id, rawToken);
+    // La sesión queda establecida al registrarse: se emiten los mismos
+    // tokens que en el login. Antes se devolvía solo {user, message} y
+    // el cliente guardaba tokens "undefined", así que la siguiente
+    // petición fallaba con "Tu sesión caducó" y había que entrar de nuevo.
+    const tokens = await this.issueTokens(user, meta);
     return {
-      user: toSafeUser(user),
+      ...tokens,
       message:
         'Cuenta creada. Revisa tu correo para verificarla; sin verificarla no acumulas ranking.',
     };
@@ -208,12 +213,18 @@ export class AuthService {
     dto: LoginDto,
     meta: RequestMeta = {},
   ): Promise<AuthTokens | { mfaRequired: true; mfaToken: string }> {
-    const email = dto.email.trim().toLowerCase();
-    await this.checkLoginRateLimit(email, meta.ip);
-    const user = await this.findUserByEmail(email);
+    const identifier = dto.email.trim();
+    // El identificador es correo o nombre de usuario: los nombres no
+    // pueden contener '@' (isValidUsername), así que es inequívoco.
+    const isEmail = identifier.includes('@');
+    const loginKey = identifier.toLowerCase();
+    await this.checkLoginRateLimit(loginKey, meta.ip);
+    const user = isEmail
+      ? await this.findUserByEmail(loginKey)
+      : await this.findUserByUsername(identifier);
     if (!user || !user.password_hash) {
-      await this.recordLoginAttempt(email, meta.ip, false);
-      await this.logSecurityEvent(null, 'LOGIN_FAILED', meta, { email });
+      await this.recordLoginAttempt(loginKey, meta.ip, false);
+      await this.logSecurityEvent(null, 'LOGIN_FAILED', meta, { identifier: loginKey });
       throw new UnauthorizedException('INVALID_CREDENTIALS');
     }
     if (user.status === 'SUSPENDED') {
@@ -221,7 +232,7 @@ export class AuthService {
     }
     const passwordOk = await bcrypt.compare(dto.password, user.password_hash);
     if (!passwordOk) {
-      await this.recordLoginAttempt(email, meta.ip, false);
+      await this.recordLoginAttempt(loginKey, meta.ip, false);
       await this.logSecurityEvent(user.id, 'LOGIN_FAILED', meta);
       throw new UnauthorizedException('INVALID_CREDENTIALS');
     }
@@ -237,10 +248,10 @@ export class AuthService {
         count: 0,
         expiresAt: Date.now() + 5 * 60 * 1000,
       });
-      await this.recordLoginAttempt(email, meta.ip, true);
+      await this.recordLoginAttempt(loginKey, meta.ip, true);
       return { mfaRequired: true, mfaToken };
     }
-    await this.recordLoginAttempt(email, meta.ip, true);
+    await this.recordLoginAttempt(loginKey, meta.ip, true);
     await this.db.query('UPDATE users SET last_login_at = now() WHERE id = $1', [user.id]);
     await this.logSecurityEvent(user.id, 'LOGIN_SUCCESS', meta);
     return this.issueTokens(user, meta);
@@ -930,6 +941,14 @@ export class AuthService {
 
   private async findUserByEmail(email: string): Promise<UserRow | null> {
     const { rows } = await this.db.query<UserRow>('SELECT * FROM users WHERE email = $1', [email]);
+    return rows[0] ?? null;
+  }
+
+  private async findUserByUsername(username: string): Promise<UserRow | null> {
+    const { rows } = await this.db.query<UserRow>(
+      'SELECT * FROM users WHERE lower(username) = lower($1)',
+      [username],
+    );
     return rows[0] ?? null;
   }
 
