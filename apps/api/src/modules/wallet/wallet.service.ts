@@ -194,10 +194,11 @@ export class WalletService {
       `SELECT COUNT(*)::bigint AS total FROM wallet_transactions WHERE ${where.join(' AND ')}`;
     const count = await this.db.query<{ total: string }>(countSql, params);
     const total = Number(count.rows[0]?.total ?? 0);
+    const ownerWalletId = await this.loadWalletId(this.db, userId);
     const data: TransactionResponse[] = [];
     for (const row of rows) {
       const entries = await this.loadEntries(this.db, row.id);
-      data.push(this.toTransactionResponse(row, entries));
+      data.push(this.toTransactionResponse(row, entries, ownerWalletId));
     }
     return {
       data,
@@ -352,7 +353,7 @@ export class WalletService {
       const key = `promo:${promo.id}:${userId}`;
       const replay = await this.findTxByKey(client, key);
       if (replay) {
-        return this.replayOrConflict(replay, userId, 'PROMO_CREDIT', amount);
+        return this.replayOrConflict(replay, userId, 'PROMO_CREDIT', amount, wallet.id);
       }
       const newAvailable = wallet.available_balance + amount;
       await this.updateWallet(client, wallet, newAvailable, wallet.reserved_balance);
@@ -388,7 +389,7 @@ export class WalletService {
         [promo.id, userId, tx.id],
       );
       const entries = await this.loadEntries(client, tx.id);
-      return this.toTransactionResponse(tx, entries);
+      return this.toTransactionResponse(tx, entries, wallet.id);
     });
   }
 
@@ -445,7 +446,7 @@ export class WalletService {
       });
       await this.insertEntries(client, tx.id, legs, balanceAfter);
       const entries = await this.loadEntries(client, tx.id);
-      return this.toTransactionResponse(tx, entries);
+      return this.toTransactionResponse(tx, entries, wallet.id);
     });
   }
 
@@ -507,7 +508,9 @@ export class WalletService {
       idempotencyKey: opts.idempotencyKey,
       description:
         opts.description ??
-        `Reserva de apuesta DEMO para la partida ${opts.referenceId ?? ''}`,
+        (opts.referenceId
+          ? `Reserva de apuesta DEMO para la partida ${opts.referenceId}`
+          : 'Reserva de apuesta DEMO'),
       referenceType: 'MATCH',
       referenceId: opts.referenceId ?? null,
       apply: async (ctx) => {
@@ -573,7 +576,9 @@ export class WalletService {
       idempotencyKey: opts.idempotencyKey,
       description:
         opts.description ??
-        `Liberación de reserva DEMO de la partida ${opts.referenceId ?? ''}`,
+        (opts.referenceId
+          ? `Liberación de reserva DEMO de la partida ${opts.referenceId}`
+          : 'Liberación de reserva DEMO'),
       referenceType: 'MATCH',
       referenceId: opts.referenceId ?? null,
       apply: async (ctx) => {
@@ -646,7 +651,8 @@ export class WalletService {
       await this.loadUserRole(client, loserId, ['USER', 'ADMIN']);
       const replay = await this.findTxByKey(client, key);
       if (replay) {
-        return [this.replayOrConflict(replay, winnerId, 'WIN_PAYOUT', stake)];
+        const ownerWalletId = await this.loadWalletId(client, winnerId);
+        return [this.replayOrConflict(replay, winnerId, 'WIN_PAYOUT', stake, ownerWalletId)];
       }
       // Bloqueo en orden fijo por id de cuenta para evitar deadlocks.
       const winnerWallet = await this.loadWalletForUpdate(client, winnerId);
@@ -714,8 +720,8 @@ export class WalletService {
       const entries1 = await this.loadEntries(client, releaseTx.id);
       const entries2 = await this.loadEntries(client, payoutTx.id);
       return [
-        this.toTransactionResponse(releaseTx, entries1),
-        this.toTransactionResponse(payoutTx, entries2),
+        this.toTransactionResponse(releaseTx, entries1, winnerWallet.id),
+        this.toTransactionResponse(payoutTx, entries2, winnerWallet.id),
       ];
     }
   }
@@ -766,7 +772,7 @@ export class WalletService {
     });
     await this.insertEntries(client, tx.id, legs, balanceAfter);
     const entries = await this.loadEntries(client, tx.id);
-    return this.toTransactionResponse(tx, entries);
+    return this.toTransactionResponse(tx, entries, wallet.id);
   }
 
   // ------------------------------------------------------------------
@@ -800,7 +806,8 @@ export class WalletService {
       if (replay) {
         const original = await this.findTxById(client, transactionId);
         const amount = Number(original?.metadata?.amount ?? 0);
-        return this.replayOrConflict(replay, replay.tx.user_id, 'REVERSAL', amount);
+        const ownerWalletId = await this.loadWalletId(client, replay.tx.user_id);
+        return this.replayOrConflict(replay, replay.tx.user_id, 'REVERSAL', amount, ownerWalletId);
       }
       const original = await this.findTxById(client, transactionId);
       if (!original) {
@@ -908,7 +915,8 @@ export class WalletService {
         throw new ConflictException('TRANSACTION_NOT_REVERSIBLE');
       }
       const entries = await this.loadEntries(client, tx.id);
-      return this.toTransactionResponse(tx, entries);
+      const ownerWalletId = await this.loadWalletId(client, original.user_id);
+      return this.toTransactionResponse(tx, entries, ownerWalletId);
     });
   }
 
@@ -948,10 +956,16 @@ export class WalletService {
       params,
     );
     const total = Number(count.rows[0]?.total ?? 0);
+    const walletIds = new Map<string, string | null>();
     const data: TransactionResponse[] = [];
     for (const row of rows) {
       const entries = await this.loadEntries(this.db, row.id);
-      data.push(this.toTransactionResponse(row, entries));
+      let ownerWalletId = walletIds.get(row.user_id);
+      if (ownerWalletId === undefined) {
+        ownerWalletId = await this.loadWalletId(this.db, row.user_id);
+        walletIds.set(row.user_id, ownerWalletId);
+      }
+      data.push(this.toTransactionResponse(row, entries, ownerWalletId));
     }
     return { data, page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) };
   }
@@ -1102,7 +1116,8 @@ export class WalletService {
     await this.loadUserRole(client, opts.userId, ['USER', 'ADMIN']);
     const replay = await this.findTxByKey(client, opts.idempotencyKey);
     if (replay) {
-      return this.replayOrConflict(replay, opts.userId, opts.type, opts.amount);
+      const ownerWalletId = await this.loadWalletId(client, opts.userId);
+      return this.replayOrConflict(replay, opts.userId, opts.type, opts.amount, ownerWalletId);
     }
     const wallet = await this.loadWalletForUpdate(client, opts.userId);
     const { legs, balanceAfter } = await opts.apply({ wallet });
@@ -1117,7 +1132,7 @@ export class WalletService {
     });
     await this.insertEntries(client, tx.id, legs, balanceAfter);
     const entries = await this.loadEntries(client, tx.id);
-    return this.toTransactionResponse(tx, entries);
+    return this.toTransactionResponse(tx, entries, wallet.id);
   }
 
   private replayOrConflict(
@@ -1125,6 +1140,7 @@ export class WalletService {
     userId: string,
     type: WalletTransactionType,
     amount: number,
+    ownerWalletId?: string | null,
   ): TransactionResponse {
     if (
       existing.tx.user_id !== userId ||
@@ -1133,7 +1149,7 @@ export class WalletService {
     ) {
       throw new ConflictException('IDEMPOTENCY_KEY_CONFLICT');
     }
-    return this.toTransactionResponse(existing.tx, existing.entries);
+    return this.toTransactionResponse(existing.tx, existing.entries, ownerWalletId);
   }
 
   // ------------------------------------------------------------------
@@ -1182,6 +1198,18 @@ export class WalletService {
       [userId],
     );
     return rows[0] ?? null;
+  }
+
+  /** Id de la billetera de un usuario (lectura, sin bloqueo). */
+  private async loadWalletId(
+    executor: DbExecutor,
+    userId: string,
+  ): Promise<string | null> {
+    const { rows } = await executor.query(
+      'SELECT id FROM wallet_accounts WHERE user_id = $1',
+      [userId],
+    );
+    return (rows[0] as { id: string } | undefined)?.id ?? null;
   }
 
   private async insertWallet(
@@ -1417,6 +1445,18 @@ export class WalletService {
   private toTransactionResponse(
     tx: WalletTransactionRow,
     entries: LedgerEntryRow[],
+    /**
+     * Id de la cuenta (billetera) del dueño de la transacción. OBLIGATORIO
+     * para calcular bien `direction` y `balanceAfter`: un WIN_PAYOUT
+     * tiene asientos de DOS billeteras (la del perdedor resta y la del
+     * ganador suma) y antes se sumaban todos los asientos USER, con neto
+     * 0 (NEUTRAL) y `balanceAfter` de la primera entrada (la del
+     * perdedor). Con el id, el neto y el saldo son los del dueño.
+     * Si no se pasa, se mantiene el comportamiento anterior (todas las
+     * entradas USER): solo ocurre en transacciones de una sola billetera,
+     * donde ambos cálculos coinciden.
+     */
+    ownerWalletId?: string | null,
   ): TransactionResponse {
     const metadata =
       typeof tx.metadata === 'string' ? JSON.parse(tx.metadata) : (tx.metadata ?? {});
@@ -1425,15 +1465,21 @@ export class WalletService {
     // saldo total. En el ledger, DEBIT suma y CREDIT resta en la cuenta
     // del usuario; un BET_HOLD/BET_RELEASE mueve available <-> reserved
     // y su neto es 0 (NEUTRAL).
-    const net = entries
-      .filter((e) => e.account_type === 'USER')
-      .reduce(
-        (acc, e) => acc + (e.direction === 'DEBIT' ? Number(e.amount) : -Number(e.amount)),
-        0,
-      );
+    const userEntries = entries.filter((e) => e.account_type === 'USER');
+    const ownEntries =
+      ownerWalletId != null
+        ? userEntries.filter((e) => e.account_id === ownerWalletId)
+        : userEntries;
+    // Si se pidió una billetera concreta y no tiene asientos (no debería
+    // pasar), se usa el cálculo anterior en vez de dejar saldo 0.
+    const scoped = ownEntries.length > 0 ? ownEntries : userEntries;
+    const net = scoped.reduce(
+      (acc, e) => acc + (e.direction === 'DEBIT' ? Number(e.amount) : -Number(e.amount)),
+      0,
+    );
     const direction: 'CREDIT' | 'DEBIT' | 'NEUTRAL' =
       net > 0 ? 'CREDIT' : net < 0 ? 'DEBIT' : 'NEUTRAL';
-    const userEntry = entries.find((e) => e.account_type === 'USER');
+    const userEntry = scoped[0];
     return {
       id: tx.id,
       idempotencyKey: tx.idempotency_key,

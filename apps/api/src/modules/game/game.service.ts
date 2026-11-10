@@ -119,7 +119,7 @@ export class GameService implements OnModuleInit, OnModuleDestroy {
   // ---------- Configuración ----------
 
   private get moveTimeoutSeconds(): number {
-    return this.config.get<number>('game.moveTimeoutSeconds') ?? 30;
+    return this.config.get<number>('game.moveTimeoutSeconds') ?? 60;
   }
 
   private get challengeTtlHours(): number {
@@ -287,7 +287,7 @@ export class GameService implements OnModuleInit, OnModuleDestroy {
   }
 
   async listChallenges(
-    user: AuthUser,
+    user: AuthUser | null,
     opts: { format?: MatchFormat; mine?: boolean; page?: number; limit?: number },
   ) {
     const page = Math.max(1, opts.page ?? 1);
@@ -296,11 +296,16 @@ export class GameService implements OnModuleInit, OnModuleDestroy {
     let where: string;
     let params: unknown[];
     if (opts.mine) {
+      // El controlador ya exige sesión para mine=true.
       where = 'creator_id = $1';
-      params = [user.id];
-    } else {
+      params = [user!.id];
+    } else if (user) {
       where = `status = 'OPEN' AND (visibility = 'PUBLIC' OR creator_id = $1)`;
       params = [user.id];
+    } else {
+      // Sin sesión solo se ven los retos públicos y abiertos.
+      where = `status = 'OPEN' AND visibility = 'PUBLIC'`;
+      params = [];
     }
     if (opts.format) {
       where += ` AND format = $${params.length + 1}`;
@@ -316,15 +321,25 @@ export class GameService implements OnModuleInit, OnModuleDestroy {
       [...params, limit, offset],
     );
     const systemId = await this.getSystemUserId();
+    // Nombre del creador para la tarjeta (antes no se devolvía y la
+    // tarjeta mostraba siempre «Jugador»).
+    const creatorIds = [...new Set(rowsRes.rows.map((c) => c.creator_id))];
+    const namesRes = await this.db.query<{ id: string; username: string }>(
+      'SELECT id, username FROM users WHERE id = ANY($1)',
+      [creatorIds],
+    );
+    const names = new Map(namesRes.rows.map((u) => [u.id, u.username]));
     return {
-      items: rowsRes.rows.map((c) => toChallengeView(c, c.creator_id === systemId)),
+      items: rowsRes.rows.map((c) =>
+        toChallengeView(c, c.creator_id === systemId, undefined, names.get(c.creator_id) ?? null),
+      ),
       total: Number(totalRes.rows[0]?.count ?? 0),
       page,
       limit,
     };
   }
 
-  async getChallenge(user: AuthUser, id: string) {
+  async getChallenge(user: AuthUser | null, id: string) {
     const res = await this.db.query<ChallengeRow>(
       'SELECT * FROM challenges WHERE id = $1',
       [id],
@@ -333,15 +348,16 @@ export class GameService implements OnModuleInit, OnModuleDestroy {
     if (!challenge) throw new NotFoundException('CHALLENGE_NOT_FOUND');
     // Reto privado: solo el creador lo ve por id (PRU-IDOR-01). El
     // invitado entra por el código (getChallengeByInviteCode).
-    if (challenge.visibility === 'PRIVATE' && challenge.creator_id !== user.id) {
+    if (challenge.visibility === 'PRIVATE' && challenge.creator_id !== user?.id) {
       throw new NotFoundException('CHALLENGE_NOT_FOUND');
     }
     const systemId = await this.getSystemUserId();
     const matchId = await this.findMatchIdForChallenge(challenge.id);
-    return toChallengeView(challenge, challenge.creator_id === systemId, matchId);
+    const creatorUsername = await this.getUsername(challenge.creator_id);
+    return toChallengeView(challenge, challenge.creator_id === systemId, matchId, creatorUsername);
   }
 
-  async getChallengeByInviteCode(user: AuthUser, code: string) {
+  async getChallengeByInviteCode(user: AuthUser | null, code: string) {
     void user;
     const res = await this.db.query<ChallengeRow>(
       'SELECT * FROM challenges WHERE invite_code = $1',
@@ -351,7 +367,17 @@ export class GameService implements OnModuleInit, OnModuleDestroy {
     if (!challenge) throw new NotFoundException('CHALLENGE_NOT_FOUND');
     const systemId = await this.getSystemUserId();
     const matchId = await this.findMatchIdForChallenge(challenge.id);
-    return toChallengeView(challenge, challenge.creator_id === systemId, matchId);
+    const creatorUsername = await this.getUsername(challenge.creator_id);
+    return toChallengeView(challenge, challenge.creator_id === systemId, matchId, creatorUsername);
+  }
+
+  /** Nombre de usuario de un creador (null si no existe). */
+  private async getUsername(userId: string): Promise<string | null> {
+    const res = await this.db.query<{ username: string }>(
+      'SELECT username FROM users WHERE id = $1',
+      [userId],
+    );
+    return res.rows[0]?.username ?? null;
   }
 
   /** Partida (la más reciente) creada al aceptar un reto, si la hay. */
@@ -370,7 +396,7 @@ export class GameService implements OnModuleInit, OnModuleDestroy {
    * perezosamente si no existe, con creador = usuario de sistema
    * 'el-reto'. Un solo reto por día (candado consultivo).
    */
-  async getDailyChallenge(user: AuthUser) {
+  async getDailyChallenge(user: AuthUser | null) {
     const now = new Date();
     const title = dailyTitleFor(now);
     const format = dailyFormatFor(now);
@@ -403,7 +429,8 @@ export class GameService implements OnModuleInit, OnModuleDestroy {
       return res.rows[0];
     });
     void user;
-    return toChallengeView(challenge, true);
+    const creatorUsername = await this.getUsername(systemId);
+    return toChallengeView(challenge, true, undefined, creatorUsername);
   }
 
   async acceptChallenge(user: AuthUser, challengeId: string) {
@@ -1747,10 +1774,12 @@ export function toChallengeView(
   challenge: ChallengeRow,
   isDaily: boolean,
   matchId?: string | null,
+  creatorUsername?: string | null,
 ) {
   return {
     id: challenge.id,
     creatorId: challenge.creator_id,
+    creatorUsername: creatorUsername ?? null,
     title: challenge.title,
     visibility: challenge.visibility,
     inviteCode: challenge.invite_code,

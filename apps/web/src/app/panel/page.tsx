@@ -16,6 +16,23 @@ import { ListSkeleton } from '../../components/Spinner';
 import { Button, PageHeader, SectionTitle } from '../../components/ui';
 import Toast from '../../components/Toast';
 
+/** Etiqueta de estado de una partida (la cancelada no es «Esperando»:
+ * antes caía en el caso por defecto y se leía como pendiente). */
+function matchStatusLabel(status: Match['status']): string {
+  switch (status) {
+    case 'FINISHED':
+      return 'Terminada';
+    case 'IN_PROGRESS':
+      return 'En curso';
+    case 'WAITING':
+      return 'Esperando';
+    case 'CANCELLED':
+      return 'Cancelada';
+    default:
+      return 'Esperando';
+  }
+}
+
 export default function PanelPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -103,7 +120,7 @@ export default function PanelPage() {
                   {m.player1Username ?? 'Jugador 1'} contra {m.player2Username ?? 'Jugador 2'}
                 </p>
                 <p className="mt-1 font-mono text-lg font-bold">{formatScore(m.score1, m.score2)}</p>
-                <p className="text-xs text-white/60">{m.status === 'FINISHED' ? 'Terminada' : m.status === 'IN_PROGRESS' ? 'En curso' : 'Esperando'}</p>
+                <p className="text-xs text-white/60">{matchStatusLabel(m.status)}</p>
                 <Link href={`/partidas/${m.id}`} className="mt-2 inline-block text-sm text-reto-gold underline underline-offset-2">
                   Ver partida
                 </Link>

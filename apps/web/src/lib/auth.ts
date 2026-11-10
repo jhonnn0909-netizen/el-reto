@@ -60,6 +60,9 @@ export const authApi = {
   me: () => api.get<User>('/auth/me'),
   logout: async () => {
     try {
+      // Quitar la presencia antes de borrar los tokens (la salida
+      // exige sesión): si no, el usuario seguía en línea hasta 60 s.
+      await gameApi.leavePresence().catch(() => undefined);
       await api.post('/auth/logout');
     } finally {
       clearTokens();
@@ -130,6 +133,8 @@ export const gameApi = {
   presence: () => api.get<OnlinePerson[]>('/presence/online'),
   /** Latido de presencia (el panel en línea lo envía cada 20 s). */
   heartbeat: () => api.post<{ ok: boolean }>('/presence/heartbeat'),
+  /** Salida de presencia (al cerrar sesión): quita al usuario de la lista en el acto. */
+  leavePresence: () => api.post<{ ok: boolean }>('/presence/leave'),
   /** Catálogo de juegos de la plataforma (mejora: área de juegos). */
   games: () => api.get<Game[] | Paginated<Game>>('/games'),
   /** Reto del día (mejora: reto diario, premio 100 créditos DEMO). */

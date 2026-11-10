@@ -86,7 +86,7 @@ export default function ProfilePage() {
         <div>
           <h2 className="font-display text-xl font-bold">{user.displayName}</h2>
           <p className="text-sm text-white/60">@{user.username}</p>
-          <p className="text-sm text-white/60">Jugando desde {sinceLabel}</p>
+          <p className="text-sm text-white/60">{`Jugando desde ${sinceLabel}`}</p>
           <div className="mt-1">
             <LevelBadge level={stats?.level} levelTitle={stats?.levelTitle} />
           </div>
@@ -123,7 +123,7 @@ export default function ProfilePage() {
             <TextInput id="display-name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
           </Field>
           <p className="text-sm text-white/60">
-            Correo: <span className="text-reto-cream">{user.username}@ —</span> tu correo no se muestra a otros jugadores.
+            Correo: <span className="text-reto-cream">{user.email ?? 'Sin correo registrado'}</span> tu correo no se muestra a otros jugadores.
           </p>
           <Button className="self-start" disabled={!changed || busy} onClick={() => setConfirmName(true)}>
             Guardar cambios

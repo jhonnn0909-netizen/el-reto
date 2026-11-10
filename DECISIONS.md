@@ -47,10 +47,16 @@ su aprobación. Cada duda incluye la recomendación del equipo y su estado.
 
 ### D6. Tiempo por jugada
 - **Duda:** ¿Cuántos segundos tiene cada jugador para elegir su jugada?
-- **Recomendación provisional:** 30 segundos por ronda, configurable
-  (`MOVE_TIMEOUT_SECONDS`). Si expira, la ronda se resuelve a favor
-  del rival.
-- **Estado:** ABIERTA (valor provisional).
+- **Decisión de Jhon (2026-11-10):** **60 segundos por jugada**
+  (respuesta a la pregunta de la auditoría de la ronda 3; eligió
+  60 frente a 30, porque 30 cancelaba partidas al jugar por el
+  enlace de vista previa). Configurable (`MOVE_TIMEOUT_SECONDS`).
+  Comportamiento real verificado: si expira, la partida se
+  CANCELA (sin ganador; los créditos reservados se devuelven), no
+  se resuelve a favor del rival.
+- **Estado:** DECIDIDA por Jhon (60 s); valor por defecto aplicado
+  en el código (`configuration.ts`, `.env.example`,
+  `docker-compose.yml`) y en los `.env` locales.
 
 ### D7. Moderación y reporte de usuarios
 - **Duda:** ¿Qué herramientas de reporte/bloqueo entre jugadores se

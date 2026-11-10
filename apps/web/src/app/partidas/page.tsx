@@ -14,8 +14,9 @@ import EmptyState from '../../components/EmptyState';
 import { ListSkeleton } from '../../components/Spinner';
 import { Button, PageHeader } from '../../components/ui';
 
-function resultOf(m: Match, meId: string | null): 'win' | 'lose' | 'tie' | 'live' {
+function resultOf(m: Match, meId: string | null): 'win' | 'lose' | 'tie' | 'live' | 'cancelled' {
   if (m.status === 'IN_PROGRESS' || m.status === 'WAITING') return 'live';
+  if (m.status === 'CANCELLED') return 'cancelled';
   if (m.status !== 'FINISHED') return 'tie';
   if (!m.winnerId) return 'tie';
   return m.winnerId === meId ? 'win' : 'lose';
@@ -26,10 +27,11 @@ const RESULT_META = {
   lose: { label: 'Derrota', icon: '✕', className: 'bg-reto-error/15 text-reto-error' },
   tie: { label: 'Empate', icon: '=', className: 'bg-white/10 text-white/80' },
   live: { label: 'En curso', icon: '●', className: 'bg-reto-info/15 text-reto-info' },
+  cancelled: { label: 'Cancelada', icon: '○', className: 'bg-white/10 text-white/80' },
 } as const;
 
 export default function MatchesPage() {
-  const [filter, setFilter] = useState<'ALL' | 'win' | 'lose' | 'tie' | 'live'>('ALL');
+  const [filter, setFilter] = useState<'ALL' | 'win' | 'lose' | 'tie' | 'live' | 'cancelled'>('ALL');
   const meId = typeof window !== 'undefined' ? (JSON.parse(window.localStorage.getItem('elreto.user') ?? 'null')?.id as string | null) ?? null : null;
 
   const matches = useApiData<Match[]>(
@@ -43,7 +45,7 @@ export default function MatchesPage() {
     <div className="mx-auto flex max-w-2xl flex-col gap-4">
       <PageHeader title="Historial de partidas" subtitle="Tus partidas, de la más reciente a la más antigua." />
       <div className="flex flex-wrap gap-2" role="group" aria-label="Filtrar por resultado">
-        {(['ALL', 'win', 'lose', 'tie', 'live'] as const).map((f) => (
+        {(['ALL', 'win', 'lose', 'tie', 'live', 'cancelled'] as const).map((f) => (
           <button
             key={f}
             type="button"
@@ -94,7 +96,12 @@ export default function MatchesPage() {
                   </span>
                 </div>
                 <div className="mt-2 flex items-center justify-between">
-                  <p className="font-mono text-lg font-bold">{formatScore(m.score1, m.score2)}</p>
+                  {/* Marcador desde la perspectiva del usuario (su marcador
+                      primero): antes se mostraba siempre jugador1–jugador2
+                      y una «Victoria 0–1» se leía como derrota. */}
+                  <p className="font-mono text-lg font-bold" aria-label={`Marcador: ${m.player1Id === meId ? 'tú' : 'rival'} ${m.player1Id === meId ? m.score1 : m.score2} a ${m.player1Id === meId ? m.score2 : m.score1}`}>
+                    {formatScore(m.player1Id === meId ? m.score1 : m.score2, m.player1Id === meId ? m.score2 : m.score1)}
+                  </p>
                   {m.stakeCredits > 0 && (
                     <p className="text-xs text-white/60">
                       Premio: <span className="font-mono text-reto-demo">{m.stakeCredits} créditos DEMO</span>

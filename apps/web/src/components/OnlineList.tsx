@@ -19,7 +19,9 @@ export const PRESENCE_META: Record<PresenceStatus, { color: string; symbol: stri
 };
 
 export function PresenceBadge({ status }: { status: PresenceStatus }) {
-  const meta = PRESENCE_META[status];
+  // Defensa: un estado desconocido (p. ej. de una versión anterior
+  // del servidor) no debe romper el render al leer meta.color.
+  const meta = PRESENCE_META[status] ?? PRESENCE_META['EN LÍNEA'];
   return (
     <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${meta.color}`}>
       <span aria-hidden="true">{meta.symbol}</span>
@@ -80,9 +82,11 @@ export default function OnlineList({
         <ul className="mt-2 flex flex-col">
           {people.map((p) => {
             const isMe = meId != null && p.userId === meId;
+            // Defensa: estado desconocido -> insignia neutra (ver PresenceBadge).
+            const dot = PRESENCE_META[p.status]?.dot ?? PRESENCE_META['EN LÍNEA'].dot;
             return (
               <li key={p.userId} className="flex flex-wrap items-center gap-1.5 border-b border-reto-gold/10 py-[5px] last:border-b-0">
-                <span aria-hidden="true" className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${PRESENCE_META[p.status].dot}`} />
+                <span aria-hidden="true" className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${dot}`} />
                 <span className="min-w-0 flex-1 truncate text-xs font-semibold">
                   {p.username}
                   {isMe && <span className="text-white/50"> (tú)</span>}

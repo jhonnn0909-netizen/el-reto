@@ -48,6 +48,16 @@ export default function HomePage() {
     20000,
   );
 
+  // Recarga inmediata tras cada latido de presencia (OnlinePanel
+  // avisa con 'elreto:presence'): el panel refleja el estado actual
+  // sin esperar al siguiente ciclo de sondeo (20 s).
+  useEffect(() => {
+    const refresh = () => presence.reload();
+    window.addEventListener('elreto:presence', refresh);
+    return () => window.removeEventListener('elreto:presence', refresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function playDaily() {
     if (!daily) return;
     if (!getStoredUser()) {
@@ -154,9 +164,19 @@ export default function HomePage() {
         {challenges.status === 'error' && (
           <div role="alert" className="rounded-card border border-reto-error/50 bg-reto-error/10 p-4">
             <p className="text-sm">{challenges.error}</p>
-            <Button variant="secondary" className="mt-3" onClick={challenges.reload}>
-              Reintentar
-            </Button>
+            {/* Sin sesión, el error es de acceso (no de red): se invita
+              a entrar en vez de ofrecer un reintento que fallaría
+              igual. Con sesión, el reintento sí tiene sentido. */}
+            {!user && challenges.error?.startsWith('Inicia sesión') ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Link href="/login"><Button>Iniciar sesión</Button></Link>
+                <Link href="/registro"><Button variant="secondary">Crear cuenta</Button></Link>
+              </div>
+            ) : (
+              <Button variant="secondary" className="mt-3" onClick={challenges.reload}>
+                Reintentar
+              </Button>
+            )}
           </div>
         )}
         {challenges.status === 'ok' && (challenges.data?.length ?? 0) === 0 && (

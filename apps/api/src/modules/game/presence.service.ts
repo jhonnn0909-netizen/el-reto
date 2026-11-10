@@ -74,9 +74,17 @@ export class PresenceService {
       player2_id: string;
       status: string;
     }>(
-      `SELECT player1_id, player2_id, status FROM matches
-       WHERE status IN ('WAITING', 'IN_PROGRESS')
-       AND (player1_id = ANY($1) OR player2_id = ANY($1))`,
+      `SELECT m.player1_id, m.player2_id, m.status FROM matches m
+       LEFT JOIN rounds r ON r.match_id = m.id AND r.round_number = m.current_round
+       WHERE m.status IN ('WAITING', 'IN_PROGRESS')
+       AND (m.player1_id = ANY($1) OR m.player2_id = ANY($1))
+       -- Una partida EN CURSO cuya ronda actual empezó hace más de
+       -- 150 s está abandonada (el temporizador la anula a los 30 s y
+       -- la cierra tras 3 rondas nulas): sus jugadores no deben seguir
+       -- como JUGANDO. Las WAITING no se filtran: el reto diario espera
+       -- rival todo el día. Sin fila de ronda (no debería pasar) no se
+       -- descarta la partida.
+       AND (m.status = 'WAITING' OR r.started_at IS NULL OR r.started_at > now() - interval '150 seconds')`,
       [ids],
     );
     const challengesRes = await this.db.query<{ creator_id: string }>(

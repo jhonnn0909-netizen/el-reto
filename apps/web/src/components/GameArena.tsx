@@ -83,6 +83,10 @@ export default function GameArena({
       ? match.player1Username ?? 'Jugador 1'
       : match.player2Username ?? 'Jugador 2';
   const finished = match.status === 'FINISHED';
+  // Partida cancelada (por tiempo sin jugadas o por el rival): no es
+  // «en vivo» ni está terminada con ganador; se muestra como tal y
+  // los botones de jugada quedan desactivados (defecto 2, ronda 3).
+  const cancelled = match.status === 'CANCELLED';
   const iWon = finished && !spectator && match.winnerId === meId;
   const roundLabel =
     match.format === 'FREE'
@@ -148,7 +152,7 @@ export default function GameArena({
 
   // Teclas 1/2/3 eligen piedra/papel/tijera (anunciado en pantalla).
   useEffect(() => {
-    if (spectator || finished) return;
+    if (spectator || finished || cancelled) return;
     const onKey = (e: KeyboardEvent) => {
       if (phase !== 'play') return;
       const idx = ['1', '2', '3'].indexOf(e.key);
@@ -206,6 +210,23 @@ export default function GameArena({
           Estás viendo esta partida como espectador. No puedes jugar en ella.
         </div>
       )}
+      {cancelled && (
+        <div role="alert" className="rounded-card border border-reto-warning/50 bg-reto-warning/10 px-4 py-3 text-sm">
+          <p className="font-semibold">Partida cancelada.</p>
+          <p className="mt-1 text-white/70">
+            Se acabó el tiempo sin jugadas, así que la partida se canceló y no cuenta como victoria ni derrota.
+            Tus créditos reservados, si los había, se devolvieron a tu billetera.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link href="/retos">
+              <Button variant="secondary">Ver retos</Button>
+            </Link>
+            <Link href="/retos/crear">
+              <Button>Crear un reto nuevo</Button>
+            </Link>
+          </div>
+        </div>
+      )}
       {everConnected && connection !== 'connected' && !finished && (
         <div role="alert" className="rounded-card border border-reto-warning/50 bg-reto-warning/10 px-4 py-3 text-sm">
           Esperando conexión… La partida queda en pausa, no se declara ninguna derrota.
@@ -231,14 +252,14 @@ export default function GameArena({
       <p className="text-center text-xs text-white/50">{totalRoundsLabel(match.format)}</p>
 
       {/* Vídeo de manos reales: se sacude en la cuenta atrás y en la espera de jugada */}
-      {!finished && !roundResult && (
+      {!finished && !cancelled && !roundResult && (
         <div className="mx-auto w-full max-w-[420px]">
           <ShakeVideo />
         </div>
       )}
 
       {/* Cuenta atrás (con el vídeo de manos sacudiéndose encima) */}
-      {phase === 'countdown' && !finished && (
+      {phase === 'countdown' && !finished && !cancelled && (
         <div className="py-2">
           <Countdown onDone={() => setPhase('play')} />
         </div>
@@ -264,6 +285,8 @@ export default function GameArena({
             </div>
           ) : finished ? (
             <p className="text-sm text-white/60">Partida terminada.</p>
+          ) : cancelled ? (
+            <p className="text-sm text-white/60">Partida cancelada.</p>
           ) : (
             <p className="text-sm text-white/60">
               {rivalSealed ? 'Jugada sellada' : 'Esperando a tu rival…'}
@@ -275,14 +298,14 @@ export default function GameArena({
             <span aria-hidden="true">🔒</span> Jugada sellada
           </p>
         )}
-        {/* «Esperando a tu rival…» nunca en una partida terminada. */}
-        {!finished && !rivalSealed && !roundResult && phase !== 'countdown' && (
+        {/* «Esperando a tu rival…» nunca en una partida terminada ni cancelada. */}
+        {!finished && !cancelled && !rivalSealed && !roundResult && phase !== 'countdown' && (
           <p className="mt-1 text-sm text-white/60">Esperando a tu rival…</p>
         )}
       </div>
 
       {/* Zona propia */}
-      {!spectator && !finished && (
+      {!spectator && !finished && !cancelled && (
         <div className="rounded-card border border-reto-gold/40 bg-reto-surface p-4 text-center">
           <h2 className="text-sm font-semibold text-white/70">Tu jugada</h2>
           {phase === 'sealed' || roundResult ? (
@@ -358,7 +381,7 @@ export default function GameArena({
       )}
 
       {/* Mensajes rápidos */}
-      {onSendMessage && !finished && (
+      {onSendMessage && !finished && !cancelled && (
         <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/50">Mensajes rápidos</p>
           <div className="flex flex-wrap gap-2" role="group" aria-label="Mensajes rápidos">
@@ -393,9 +416,11 @@ export default function GameArena({
         </ul>
       )}
 
-      <p className="text-center text-xs text-white/50">
-        Ninguno ve la jugada del otro hasta que los dos han elegido.
-      </p>
+      {!cancelled && (
+        <p className="text-center text-xs text-white/50">
+          Ninguno ve la jugada del otro hasta que los dos han elegido.
+        </p>
+      )}
 
       {/* Final de la partida */}
       {finished && (

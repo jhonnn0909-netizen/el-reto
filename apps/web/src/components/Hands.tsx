@@ -34,7 +34,10 @@ export function useReducedMotion(): boolean {
 
 /** Foto de una jugada: SOLO para elegir la jugada (botón). Nunca animada. */
 export function Hand({ move, size = 72 }: { move: Move; size?: number }) {
+  // Defensa: una jugada inválida (p. ej. null de un resultado por
+  // tiempo) no debe romper el render al leer HAND_PHOTOS[move].
   const photo = HAND_PHOTOS[move];
+  if (!photo) return null;
   return (
     <img
       src={photo.src}
@@ -99,13 +102,19 @@ export function RevealVideo({
   mirrored?: boolean;
 }) {
   const reduced = useReducedMotion();
+  // Defensa: una jugada inválida (p. ej. null de un resultado por
+  // tiempo) no debe romper el render al leer REVEAL_VIDEOS[move] ni
+  // HAND_PHOTOS[move].label.
+  const videoSrc = REVEAL_VIDEOS[move];
+  const photo = HAND_PHOTOS[move];
+  if (!videoSrc || !photo) return null;
   if (reduced) {
     return <Hand move={move} size={120} />;
   }
   return (
     <video
-      src={REVEAL_VIDEOS[move]}
-      aria-label={`Vídeo real: revelado de ${HAND_PHOTOS[move].label.toLowerCase()}`}
+      src={videoSrc}
+      aria-label={`Vídeo real: revelado de ${photo.label.toLowerCase()}`}
       className="animate-reveal-rise block h-auto w-full max-w-[280px] rounded-xl border border-reto-gold/50"
       style={mirrored ? { transform: 'scaleX(-1)' } : undefined}
       autoPlay

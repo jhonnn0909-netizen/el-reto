@@ -6,9 +6,11 @@ import {
   ParseUUIDPipe,
   Post,
   Query,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Public } from '../auth/decorators/public.decorator';
 import { AuthUser } from '../../common/auth/auth-user.interface';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CommitDto } from './dto/commit.dto';
@@ -35,34 +37,47 @@ export class GameController {
     return this.game.createChallenge(user, dto);
   }
 
+  /**
+   * Lista pública: sin sesión solo se ven los retos PUBLIC y abiertos
+   * (antes el guardia exigía token y la portada mostraba «Tu sesión
+   * caducó» a quien no había entrado). `mine=true` sigue exigiendo
+   * sesión.
+   */
+  @Public()
   @Get('challenges')
   listChallenges(
-    @CurrentUser() user: AuthUser,
+    @CurrentUser() user: AuthUser | undefined,
     @Query() query: ListChallengesDto,
   ) {
-    return this.game.listChallenges(user, query);
+    if (query.mine && !user) {
+      throw new UnauthorizedException('MISSING_TOKEN');
+    }
+    return this.game.listChallenges(user ?? null, query);
   }
 
   /** Reto diario (determinista por fecha; se crea perezosamente). */
+  @Public()
   @Get('challenges/daily')
-  getDailyChallenge(@CurrentUser() user: AuthUser) {
-    return this.game.getDailyChallenge(user);
+  getDailyChallenge(@CurrentUser() user: AuthUser | undefined) {
+    return this.game.getDailyChallenge(user ?? null);
   }
 
+  @Public()
   @Get('challenges/invite/:code')
   getChallengeByInviteCode(
-    @CurrentUser() user: AuthUser,
+    @CurrentUser() user: AuthUser | undefined,
     @Param('code') code: string,
   ) {
-    return this.game.getChallengeByInviteCode(user, code);
+    return this.game.getChallengeByInviteCode(user ?? null, code);
   }
 
+  @Public()
   @Get('challenges/:id')
   getChallenge(
-    @CurrentUser() user: AuthUser,
+    @CurrentUser() user: AuthUser | undefined,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.game.getChallenge(user, id);
+    return this.game.getChallenge(user ?? null, id);
   }
 
   @Post('challenges/:id/accept')

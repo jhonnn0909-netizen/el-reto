@@ -629,6 +629,23 @@ describe('WalletService', () => {
     expect(byType.get('BET_HOLD')).toBe('NEUTRAL');
   });
 
+  it('movements: el WIN_PAYOUT del ganador es CREDIT con su saldo (no NEUTRAL ni el del perdedor)', async () => {
+    await service.holdStake(USER_1, 'match-dir-2', 300);
+    await service.holdStake(USER_2, 'match-dir-2', 300);
+    await service.payout('match-dir-2', USER_1, USER_2, 300);
+    const all = await service.listMovements(USER_1, { page: 1, limit: 10 } as any);
+    const byType = new Map(all.data.map((m) => [m.type, m]));
+    // El ganador recupera su apuesta (total 1000, NEUTRAL) y cobra el
+    // premio del perdedor (+300, CREDIT) con saldo resultante 1300.
+    // Antes el WIN_PAYOUT sumaba los asientos de AMBOS jugadores (neto
+    // 0 → NEUTRAL) y el saldo era el del perdedor (700).
+    expect(byType.get('BET_RELEASE')?.direction).toBe('NEUTRAL');
+    expect(byType.get('BET_RELEASE')?.balanceAfter).toBe(1000);
+    expect(byType.get('WIN_PAYOUT')?.direction).toBe('CREDIT');
+    expect(byType.get('WIN_PAYOUT')?.amount).toBe(300);
+    expect(byType.get('WIN_PAYOUT')?.balanceAfter).toBe(1300);
+  });
+
   it('retiro de créditos de origen promocional no deja MINT en negativo', async () => {
     await service.createPromoCode(ADMIN_1, { code: 'promo-500', credits: 500, maxUses: 10 } as any);
     await service.redeemPromo(USER_1, 'promo-500');

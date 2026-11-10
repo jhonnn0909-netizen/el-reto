@@ -500,6 +500,31 @@ describe('GameService', () => {
     expect(list.total).toBe(1);
   });
 
+  it('la lista pública se ve sin sesión y trae el nombre del creador', async () => {
+    const { service } = setup();
+    await service.createChallenge(ana, { format: 'BEST_OF_3', stakeCredits: 0 });
+    await service.createChallenge(ana, {
+      visibility: 'PRIVATE',
+      format: 'BEST_OF_1',
+      stakeCredits: 0,
+    });
+    // Sin sesión: solo el público, con el nombre de quien lo creó
+    // (antes la portada exigía token y la tarjeta decía «Jugador»).
+    const list = await service.listChallenges(null, {});
+    expect(list.items).toHaveLength(1);
+    expect(list.items[0].creatorUsername).toBe('ana');
+    // El privado no se ve por id sin sesión, el público sí.
+    const pub = list.items[0];
+    const seen = await service.getChallenge(null, pub.id);
+    expect(seen.creatorUsername).toBe('ana');
+    const priv = await service.createChallenge(bruno, {
+      visibility: 'PRIVATE',
+      format: 'BEST_OF_1',
+      stakeCredits: 0,
+    });
+    await expect(service.getChallenge(null, priv.id)).rejects.toThrow('CHALLENGE_NOT_FOUND');
+  });
+
   it('crea un reto privado con código y con apuesta reservada', async () => {
     const { service, wallet } = setup();
     const ch = await service.createChallenge(ana, {

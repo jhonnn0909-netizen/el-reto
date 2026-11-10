@@ -99,7 +99,7 @@ export default function HistoryPage() {
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold">{m.description}</p>
-                      <p className="text-xs text-white/50">{formatDateTime(m.createdAt)} · {m.type}</p>
+                      <p className="text-xs text-white/50">{`${formatDateTime(m.createdAt)} · ${m.type}`}</p>
                     </div>
                     <p className={`shrink-0 font-mono font-bold ${s.className}`}>
                       {s.sign}{formatCredits(m.amount)} <span className="text-[11px]">DEMO</span>

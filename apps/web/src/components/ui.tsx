@@ -116,7 +116,8 @@ export function SectionTitle({ children }: { children: ReactNode }) {
 
 /** Inicial del avatar (doc 04 §5.1). */
 export function Avatar({ name, size = 40 }: { name: string; size?: number }) {
-  const initial = (name.trim()[0] ?? '?').toUpperCase();
+  // Defensa: un nombre ausente o no textual no debe romper el render.
+  const initial = (typeof name === 'string' && name.trim() ? name.trim()[0] : '?')!.toUpperCase();
   return (
     <span
       aria-hidden="true"

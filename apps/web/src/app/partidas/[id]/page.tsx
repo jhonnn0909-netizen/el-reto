@@ -47,6 +47,11 @@ export default function MatchPage() {
   const load = useCallback(async () => {
     try {
       const m = await gameApi.getMatch(id);
+      // Defensa: un estado incompleto no debe romper el render; se
+      // trata como error de carga (con reintento) en vez de página negra.
+      if (!m || typeof m !== 'object' || !m.id || !m.player1Id || !m.player2Id || !m.format) {
+        throw new Error('La partida no devolvió un estado válido.');
+      }
       setMatch(m);
       setStatus('ok');
       return m;
@@ -89,6 +94,16 @@ export default function MatchPage() {
     return () => clearInterval(timer);
   }, [user]);
 
+  // Recarga inmediata tras cada latido de presencia (OnlinePanel
+  // avisa con 'elreto:presence').
+  useEffect(() => {
+    const refresh = () => {
+      gameApi.presence().then(setPresence).catch(() => undefined);
+    };
+    window.addEventListener('elreto:presence', refresh);
+    return () => window.removeEventListener('elreto:presence', refresh);
+  }, []);
+
   // WebSocket con respaldo REST.
   useEffect(() => {
     if (!match || !user) return;
@@ -100,20 +115,37 @@ export default function MatchPage() {
         socket = getGameSocket(token);
         socketRef.current = socket;
         const spectator = match.player1Id !== user.id && match.player2Id !== user.id;
-        socket.emit(spectator ? 'match:watch' : 'match:join', { matchId: id });
+        // Al reconectar, el servidor ya no tiene este socket en la sala:
+        // hay que volver a entrar para seguir recibiendo match:state
+        // (antes, tras una reconexión, la página quedaba con el estado
+        // viejo y no se enteraba de cancelaciones ni resultados).
+        let joined = false;
+        const joinRoom = () => {
+          socket?.emit(spectator ? 'match:watch' : 'match:join', { matchId: id });
+          joined = true;
+        };
+        joinRoom();
         socket.on('connect', () => {
           setConnection('connected');
           setEverConnected(true);
+          if (joined) joinRoom();
         });
         socket.on('disconnect', () => setConnection('reconnecting'));
         socket.on('connect_error', () => setConnection('offline'));
         socket.on('match:state', (state: Match) => {
+          // Defensa: un estado incompleto (p. ej. de una versión
+          // anterior del servidor o un reenvío corrupto) no debe
+          // romper el render: sin jugadores ni formato no hay partida
+          // que mostrar. Se ignora y se conserva el estado anterior.
+          if (!state || typeof state !== 'object' || !state.id || !state.player1Id || !state.player2Id || !state.format) {
+            return;
+          }
           setMatch(state);
           setConnection('connected');
           setEverConnected(true);
         });
         socket.on('match:committed', (payload: { playerId: string }) => {
-          if (payload.playerId !== user.id) setRivalSealed(true);
+          if (payload && payload.playerId && payload.playerId !== user.id) setRivalSealed(true);
         });
         // La API emite las jugadas y el marcador por jugador 1/2
         // (moves: {player1, player2}, score: {player1, player2}), no por
@@ -122,6 +154,17 @@ export default function MatchPage() {
         // el resultado de la ronda nunca se mostraba y el marcador
         // quedaba en "NaN a NaN".
         socket.on('round:result', (payload: { moves: { player1: Move | null; player2: Move | null }; result: string; score: { player1: number; player2: number } }) => {
+          // Defensa: el temporizador puede resolver una ronda con una
+          // sola jugada (la otra es null) y un payload sin `score` o
+          // sin `moves` rompería el render al leer
+          // `payload.score.player1` dentro del actualizador de estado
+          // (la excepción se propaga como error de renderizado: página
+          // negra «Application error»). Sin datos completos se ignora
+          // el evento; el estado se refresca con la siguiente
+          // match:state o con el sondeo REST.
+          if (!payload || typeof payload !== 'object' || !payload.moves || typeof payload.moves !== 'object') {
+            return;
+          }
           // Espectador: orientación neutra por jugador 1/2. Antes el
           // espectador caía en la rama «no soy jugador 1» y el vídeo
           // de la jugada se mostraba bajo el nombre equivocado.
@@ -133,18 +176,38 @@ export default function MatchPage() {
             setRoundResult({ myMove, rivalMove });
             setRivalSealed(false);
           }
-          setMatch((prev) => (prev ? { ...prev, score1: payload.score.player1, score2: payload.score.player2 } : prev));
+          if (payload.score && typeof payload.score.player1 === 'number' && typeof payload.score.player2 === 'number') {
+            setMatch((prev) => (prev ? { ...prev, score1: payload.score.player1, score2: payload.score.player2 } : prev));
+          }
         });
         socket.on('match:finished', (payload: { winnerId: string; score: { player1: number; player2: number } }) => {
+          if (!payload || typeof payload !== 'object') return;
           setMatch((prev) =>
-            prev ? { ...prev, status: 'FINISHED', winnerId: payload.winnerId, score1: payload.score.player1, score2: payload.score.player2 } : prev,
+            prev
+              ? {
+                  ...prev,
+                  status: 'FINISHED',
+                  winnerId: payload.winnerId ?? null,
+                  score1: typeof payload.score?.player1 === 'number' ? payload.score.player1 : prev.score1,
+                  score2: typeof payload.score?.player2 === 'number' ? payload.score.player2 : prev.score2,
+                }
+              : prev,
           );
         });
         socket.on('match:message', (msg: MatchMessage) => {
           setMessages((prev) => [...prev, msg]);
         });
-        socket.on('match:cancelled', () => {
-          setToast('Tu rival se desconectó. Puedes esperar o cancelar el reto.');
+        socket.on('match:cancelled', (payload: { matchId: string; reason?: string }) => {
+          // La partida cancelada debe reflejarse EN EL MOMENTO: antes
+          // solo se mostraba un aviso («Tu rival se desconectó») y la
+          // página seguía como «Partida en vivo» con los botones
+          // activos; al jugar, el commit fallaba con un error genérico
+          // de conexión. Ahora se marca CANCELLED, se recarga el
+          // estado fresco y los botones quedan desactivados (GameArena).
+          void payload;
+          setMatch((prev) => (prev ? { ...prev, status: 'CANCELLED' } : prev));
+          setToast('La partida fue cancelada: se acabó el tiempo sin jugadas. Puedes crear un reto nuevo.');
+          void load();
         });
       }
     } catch {
@@ -155,6 +218,12 @@ export default function MatchPage() {
     }
     return () => {
       if (poll) clearInterval(poll);
+      // Se quitan TODOS los manejadores, incluidos connect/disconnect:
+      // antes se acumulaban en el socket compartido al repetirse el
+      // efecto y cada reconexión reenviaba match:join varias veces.
+      socket?.off('connect');
+      socket?.off('disconnect');
+      socket?.off('connect_error');
       socket?.off('match:state');
       socket?.off('match:committed');
       socket?.off('round:result');
@@ -169,6 +238,15 @@ export default function MatchPage() {
 
   async function chooseMove(move: Move) {
     if (!match || !user) return;
+    // Sin jugadas posibles en partidas cerradas: el botón ya está
+    // desactivado (GameArena), pero un doble toque o una tecla 1/2/3
+    // no debe intentar el commit (antes fallaba con el error genérico
+    // de conexión aunque la causa era la cancelación por tiempo).
+    if (match.status === 'CANCELLED') {
+      setToast('Esta partida fue cancelada. Crea un reto nuevo para jugar.');
+      return;
+    }
+    if (match.status === 'FINISHED') return;
     const secret = secretRef.current;
     try {
       const hash = await commitHash(move, secret);

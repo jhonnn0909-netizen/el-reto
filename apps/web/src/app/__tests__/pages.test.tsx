@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import HomePage from '../page';
 import ChallengesPage from '../retos/page';
+import MatchesPage from '../partidas/page';
 import RankingPage from '../ranking/page';
 import LoginPage from '../login/page';
 import RegisterPage from '../registro/page';
@@ -94,6 +95,66 @@ describe('Retos', () => {
     render(<ChallengesPage />);
     expect(await screen.findByText('Alcon')).toBeInTheDocument();
     expect(screen.queryByText('No hay retos públicos ahora mismo.')).not.toBeInTheDocument();
+  });
+});
+
+describe('Historial de partidas', () => {
+  const matchBase = {
+    challengeId: 'ch1',
+    format: 'BEST_OF_3',
+    stakeCredits: 50,
+    currentRound: 1,
+    createdAt: new Date().toISOString(),
+  };
+  it('muestra el marcador desde la perspectiva del usuario y «Cancelada» en vez de «Empate»', async () => {
+    window.localStorage.setItem('elreto.user', JSON.stringify({ id: 'me', username: 'yo' }));
+    installFetch((url) => {
+      if (url.includes('/matches')) {
+        return {
+          body: {
+            items: [
+              {
+                ...matchBase,
+                id: 'm1',
+                player1Id: 'u1',
+                player1Username: 'Alcon',
+                player2Id: 'me',
+                player2Username: 'yo',
+                status: 'FINISHED',
+                score1: 0,
+                score2: 1,
+                winnerId: 'me',
+              },
+              {
+                ...matchBase,
+                id: 'm2',
+                player1Id: 'me',
+                player1Username: 'yo',
+                player2Id: 'u1',
+                player2Username: 'Alcon',
+                status: 'CANCELLED',
+                score1: 0,
+                score2: 0,
+                winnerId: null,
+              },
+            ],
+            total: 2,
+            page: 1,
+            limit: 20,
+          },
+        };
+      }
+      return { body: {} };
+    });
+    render(<MatchesPage />);
+    // Victoria como jugador 2: el marcador se lee 1–0 (mi marcador
+    // primero), no 0–1 como antes.
+    expect(await screen.findByText('Victoria')).toBeInTheDocument();
+    expect(screen.getByText('1–0')).toBeInTheDocument();
+    // «Cancelada» aparece como filtro y como insignia de la partida;
+    // «Empate» solo como filtro (ninguna partida se etiqueta así).
+    expect(screen.getAllByText('Cancelada')).toHaveLength(2);
+    expect(screen.getAllByText('Empate')).toHaveLength(1);
   });
 });
 

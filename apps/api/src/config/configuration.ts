@@ -25,7 +25,7 @@ export default () => {
       maxStake: Number(process.env.DEMO_MAX_STAKE || 1000),
     },
     game: {
-      moveTimeoutSeconds: Number(process.env.MOVE_TIMEOUT_SECONDS || 30),
+      moveTimeoutSeconds: Number(process.env.MOVE_TIMEOUT_SECONDS || 60),
       challengeTtlHours: Number(process.env.CHALLENGE_TTL_HOURS || 24),
     },
     smtp: {

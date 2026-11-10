@@ -35,11 +35,21 @@ export default function OnlinePanel({
   // enviaba fuera de una partida, así que quien navegaba no aparecía
   // en línea y el panel marcaba (0) mientras decía «Eres la única
   // persona en línea». Con el latido, el contador incluye al usuario.
+  // Tras cada latido correcto se avisa con 'elreto:presence' para que
+  // la página recargue la lista en el acto: antes el primer latido y
+  // la primera lectura corrían en paralelo y, si la lectura llegaba
+  // antes, el usuario tardaba 20–60 s (1–3 ciclos de sondeo) en
+  // aparecer en su propio panel.
   useEffect(() => {
     if (!getAccessToken()) return;
     let stopped = false;
     const beat = () => {
-      gameApi.heartbeat().catch(() => undefined);
+      gameApi
+        .heartbeat()
+        .then(() => {
+          if (!stopped) window.dispatchEvent(new Event('elreto:presence'));
+        })
+        .catch(() => undefined);
     };
     beat();
     const timer = setInterval(() => {

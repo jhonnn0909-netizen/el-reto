@@ -17,7 +17,12 @@ export interface LoadResult<T> {
 export function apiErrorMessage(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.status === 0) return 'Sin conexión. Revisa tu internet e inténtalo de nuevo.';
-    if (err.status === 401) return 'Tu sesión caducó. Inicia sesión de nuevo.';
+    // 401 sin token = visitante anónimo, no sesión caducada: invitación
+    // neutra a entrar en vez de «Tu sesión caducó» (defecto 6e).
+    if (err.status === 401)
+      return err.hadToken
+        ? 'Tu sesión caducó. Inicia sesión de nuevo.'
+        : 'Inicia sesión para ver esto.';
     if (err.status === 403) return 'No tienes permiso para hacer esto.';
     if (err.status === 404) return 'Esto ya no existe. Puede que haya terminado o se haya cancelado.';
     if (err.status >= 500) return 'Algo salió mal de nuestro lado. Inténtalo en unos minutos.';

@@ -63,8 +63,10 @@ export function setPrefs(patch: Partial<Prefs>): Prefs {
 
 export function prefersReducedMotion(): boolean {
   if (typeof window === 'undefined') return false;
-  return (
-    getPrefs().reduceMotion ||
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  );
+  // Defensa: en entornos sin matchMedia (pruebas jsdom, navegadores
+  // muy antiguos) no debe lanzar una excepción de renderizado.
+  const mq = typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-reduced-motion: reduce)')
+    : null;
+  return getPrefs().reduceMotion || mq?.matches === true;
 }

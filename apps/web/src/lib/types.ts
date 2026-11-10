@@ -16,6 +16,9 @@ export interface User {
   id: string;
   username: string;
   displayName: string;
+  /** Correo del propio usuario (lo devuelve /users/me; nunca se
+   * muestra a otros jugadores). null en invitados. */
+  email?: string | null;
   avatarUrl?: string | null;
   role: 'USER' | 'ADMIN' | 'GUEST';
   status: string;
