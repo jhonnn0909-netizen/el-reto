@@ -10,6 +10,9 @@
 //   página y NUNCA es un cajón que se abre/cierra ni queda escondida abajo.
 'use client';
 
+import { useEffect } from 'react';
+import { gameApi } from '../lib/auth';
+import { getAccessToken } from '../lib/api';
 import type { OnlinePerson } from '../lib/types';
 import OnlineList from './OnlineList';
 
@@ -18,18 +21,42 @@ export default function OnlinePanel({
   inviteeName,
   onChallenge,
   loading = false,
+  meId,
 }: {
   people: OnlinePerson[];
   inviteeName?: string | null;
   onChallenge?: (person: OnlinePerson) => void;
   loading?: boolean;
+  /** Id del usuario actual: se marca como «Tú» y no se le reta. */
+  meId?: string | null;
 }) {
+  // Latido de presencia: la lista de Redis solo incluye a quien envía
+  // heartbeats (TTL 60 s, cada 20 s). Antes el cliente web nunca lo
+  // enviaba fuera de una partida, así que quien navegaba no aparecía
+  // en línea y el panel marcaba (0) mientras decía «Eres la única
+  // persona en línea». Con el latido, el contador incluye al usuario.
+  useEffect(() => {
+    if (!getAccessToken()) return;
+    let stopped = false;
+    const beat = () => {
+      gameApi.heartbeat().catch(() => undefined);
+    };
+    beat();
+    const timer = setInterval(() => {
+      if (!stopped) beat();
+    }, 20000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, []);
+
   return (
     <aside
       aria-label="Personas en línea"
       className="order-first sticky top-0 z-[5] bg-[#0a0a0a] min-[900px]:order-none min-[900px]:fixed min-[900px]:top-[76px] min-[900px]:w-[200px] min-[900px]:bg-transparent right-[max(16px,calc((100vw_-_1080px)/2_+_16px))]"
     >
-      <OnlineList people={people} inviteeName={inviteeName} onChallenge={onChallenge} loading={loading} />
+      <OnlineList people={people} inviteeName={inviteeName} onChallenge={onChallenge} loading={loading} meId={meId} />
     </aside>
   );
 }

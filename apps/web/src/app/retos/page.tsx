@@ -23,6 +23,7 @@ export default function ChallengesPage() {
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [pendingChallenge, setPendingChallenge] = useState<Challenge | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const user = getStoredUser();
 
   const challenges = useApiData<Challenge[]>(
     useCallback(async () => {
@@ -34,6 +35,7 @@ export default function ChallengesPage() {
   const presence = useApiData<OnlinePerson[]>(
     useCallback(async () => gameApi.presence(), []),
     'challenges-presence',
+    20000,
   );
 
   const visible = (challenges.data ?? []).filter((c) => {
@@ -43,7 +45,6 @@ export default function ChallengesPage() {
   });
 
   async function accept(challenge: Challenge) {
-    const user: User | null = getStoredUser();
     if (!user) {
       setPendingChallenge(challenge);
       return;
@@ -74,6 +75,7 @@ export default function ChallengesPage() {
       <OnlinePanel
         people={presence.status === 'ok' ? presence.data ?? [] : []}
         loading={presence.status === 'loading'}
+        meId={user?.id}
         onChallenge={(p) => setToast(`Reto a ${p.username}: crea un reto y comparte el enlace.`)}
       />
       <div className="flex min-w-0 flex-col gap-6 min-[900px]:col-start-1 min-[900px]:row-start-1">

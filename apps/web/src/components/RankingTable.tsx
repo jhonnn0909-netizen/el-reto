@@ -30,12 +30,16 @@ function Streak({ label, value }: { label: string; value?: number }) {
 }
 
 /** Medalla de posición (muestra negro y oro): 1.º dorado, 2.º plateado, 3.º bronce. */
-export function Medal({ position }: { position: number }) {
+export function Medal({ position }: { position: number | null }) {
   const styles: Record<number, string> = {
     1: 'bg-gradient-to-b from-reto-goldLight to-reto-goldDark text-[#1a1206]',
     2: 'bg-gradient-to-b from-white to-reto-silver text-[#1a1206]',
     3: 'bg-gradient-to-b from-reto-bronzeLight to-reto-bronze text-white',
   };
+  // Sin posición (usuario sin fila de ranking): guion, sin medalla.
+  if (position === null) {
+    return <span className="inline-flex h-[22px] w-[22px] items-center justify-center font-mono text-sm font-bold text-reto-cream/70">–</span>;
+  }
   const cls = styles[position];
   if (!cls) {
     return <span className="inline-flex h-[22px] w-[22px] items-center justify-center font-mono text-sm font-bold text-reto-cream/70">{position}</span>;
@@ -52,7 +56,9 @@ export function Medal({ position }: { position: number }) {
 
 export default function RankingTable({ entries }: { entries: RankingEntry[] }) {
   if (entries.length === 0) return null;
-  const sorted = [...entries].sort((a, b) => a.position - b.position);
+  const sorted = [...entries].sort(
+    (a, b) => (a.position ?? Number.MAX_SAFE_INTEGER) - (b.position ?? Number.MAX_SAFE_INTEGER),
+  );
   return (
     <div>
       {/* Escritorio y tableta: tabla */}

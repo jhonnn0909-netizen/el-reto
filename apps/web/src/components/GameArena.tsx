@@ -8,7 +8,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import type { Match, MatchMessage, Move } from '../lib/types';
-import { FORMAT_LABELS, MOVE_LABELS, MOVE_ORDER, roundPhrase, totalRoundsLabel, winnerOf } from '../lib/game';
+import { FORMAT_LABELS, MOVE_LABELS, MOVE_ORDER, roundPhrase, roundPhraseNeutral, totalRoundsLabel, winnerOf } from '../lib/game';
 import { formatScore } from '../lib/format';
 import { playSound, vibrateLose, vibrateWin } from '../lib/sounds';
 import { getPrefs } from '../lib/session';
@@ -40,6 +40,7 @@ export default function GameArena({
   onRematch,
   onLeave,
   onSendMessage,
+  everConnected = true,
 }: {
   match: Match;
   meId: string;
@@ -55,6 +56,12 @@ export default function GameArena({
   onRematch: () => void;
   onLeave: () => void;
   onSendMessage?: (text: string) => void;
+  /**
+   * Si aún no se ha conectado nunca (primera carga), no se muestra el
+   * aviso de «partida en pausa»: solo aparece cuando se pierde una
+   * conexión que ya existía.
+   */
+  everConnected?: boolean;
 }) {
   const [phase, setPhase] = useState<'countdown' | 'play' | 'sealed' | 'revealed'>('countdown');
   const [myMove, setMyMove] = useState<Move | null>(null);
@@ -63,8 +70,20 @@ export default function GameArena({
   const amPlayer1 = match.player1Id === meId;
   const myScore = amPlayer1 ? match.score1 : match.score2;
   const rivalScore = amPlayer1 ? match.score2 : match.score1;
+  // Espectador: orientación neutra por jugador 1/2. Antes el espectador
+  // caía en la rama «no soy jugador 1» y el marcador se mostraba
+  // invertido respecto a los nombres (el jugador 1 con el marcador
+  // del jugador 2 y viceversa).
+  const leftName = spectator ? match.player1Username ?? 'Jugador 1' : meName;
+  const leftScore = spectator ? match.score1 : myScore;
+  const rightName = spectator ? match.player2Username ?? 'Jugador 2' : opponentName;
+  const rightScore = spectator ? match.score2 : rivalScore;
+  const winnerName =
+    match.winnerId === match.player1Id
+      ? match.player1Username ?? 'Jugador 1'
+      : match.player2Username ?? 'Jugador 2';
   const finished = match.status === 'FINISHED';
-  const iWon = finished && match.winnerId === meId;
+  const iWon = finished && !spectator && match.winnerId === meId;
   const roundLabel =
     match.format === 'FREE'
       ? `Ronda ${match.currentRound}`
@@ -81,16 +100,42 @@ export default function GameArena({
   useEffect(() => {
     if (roundResult) {
       setPhase('revealed');
-      const phrase = roundPhrase(roundResult.myMove, roundResult.rivalMove);
+      // Espectador: anuncio neutro con el nombre del ganador de la
+      // ronda. Antes decía «Ganas»/«Pierdes la ronda» a quien no juega
+      // (roundResult.myMove es la jugada del jugador 1 para el
+      // espectador, por la orientación neutra de la página).
+      const phrase = spectator
+        ? roundPhraseNeutral(
+            roundResult.myMove,
+            roundResult.rivalMove,
+            match.player1Username ?? 'Jugador 1',
+            match.player2Username ?? 'Jugador 2',
+          )
+        : roundPhrase(roundResult.myMove, roundResult.rivalMove);
       setAnnounce(phrase);
-      playSound('win');
-      if (match.winnerId === meId) vibrateWin();
-      else if (match.winnerId) vibrateLose();
+      // Sonidos y vibración solo para quien juega: al espectador no le
+      // corresponde feedback de victoria/derrota.
+      if (!spectator) {
+        playSound('win');
+        if (match.winnerId === meId) vibrateWin();
+        else if (match.winnerId) vibrateLose();
+      }
     }
-  }, [roundResult, match.winnerId, meId]);
+  }, [roundResult, match.winnerId, meId, spectator, match.player1Username, match.player2Username]);
 
   useEffect(() => {
     if (!finished) return;
+    // Espectador: texto neutro con el ganador. Antes decía «Perdiste»
+    // a quien ni siquiera había jugado (iWon era false para todo el
+    // que no fuera el ganador).
+    if (spectator) {
+      setAnnounce(
+        match.winnerId
+          ? `Ganó ${winnerName} ${formatScore(match.score1, match.score2)}.`
+          : 'La partida terminó en empate.',
+      );
+      return;
+    }
     setAnnounce(iWon ? `¡Ganaste ${myScore} a ${rivalScore}!` : `Perdiste ${myScore} a ${rivalScore}.`);
     if (iWon) {
       playSound('win');
@@ -99,7 +144,7 @@ export default function GameArena({
       playSound('lose');
       vibrateLose();
     }
-  }, [finished, iWon, myScore, rivalScore]);
+  }, [finished, iWon, myScore, rivalScore, spectator, winnerName, match.score1, match.score2, match.winnerId]);
 
   // Teclas 1/2/3 eligen piedra/papel/tijera (anunciado en pantalla).
   useEffect(() => {
@@ -133,7 +178,10 @@ export default function GameArena({
       <div className="relative flex flex-col gap-4">
       {showConfetti && <Confetti />}
       <p aria-live="polite" className="sr-only">
-        {announce || `${roundLabel}. Vas ${myScore} a ${rivalScore}.`}
+        {announce ||
+          (spectator
+            ? `${roundLabel}. ${leftName} ${leftScore} a ${rightScore} ${rightName}.`
+            : `${roundLabel}. Vas ${myScore} a ${rivalScore}.`)}
       </p>
 
       {/* Barra de partida */}
@@ -158,7 +206,7 @@ export default function GameArena({
           Estás viendo esta partida como espectador. No puedes jugar en ella.
         </div>
       )}
-      {connection !== 'connected' && !finished && (
+      {everConnected && connection !== 'connected' && !finished && (
         <div role="alert" className="rounded-card border border-reto-warning/50 bg-reto-warning/10 px-4 py-3 text-sm">
           Esperando conexión… La partida queda en pausa, no se declara ninguna derrota.
         </div>
@@ -167,16 +215,16 @@ export default function GameArena({
       {/* Marcador */}
       <div className="flex items-center justify-between gap-3 rounded-panel border border-reto-gold/40 bg-reto-surface p-4 text-center">
         <div className="flex-1">
-          <p className="truncate text-sm font-semibold">{spectator ? match.player1Username ?? 'Jugador 1' : meName}</p>
-          <p className="font-display text-3xl font-black text-reto-gold" aria-label={`Tu marcador: ${myScore}`}>
-            {amPlayer1 ? match.score1 : match.score2}
+          <p className="truncate text-sm font-semibold">{leftName}</p>
+          <p className="font-display text-3xl font-black text-reto-gold" aria-label={spectator ? `Marcador de ${leftName}: ${leftScore}` : `Tu marcador: ${myScore}`}>
+            {leftScore}
           </p>
         </div>
         <span aria-hidden="true" className="font-display text-xl font-black text-white/40">VS</span>
         <div className="flex-1">
-          <p className="truncate text-sm font-semibold">{spectator ? match.player2Username ?? 'Jugador 2' : opponentName}</p>
-          <p className="font-display text-3xl font-black text-reto-gold" aria-label={`Marcador del rival: ${rivalScore}`}>
-            {amPlayer1 ? match.score2 : match.score1}
+          <p className="truncate text-sm font-semibold">{rightName}</p>
+          <p className="font-display text-3xl font-black text-reto-gold" aria-label={spectator ? `Marcador de ${rightName}: ${rightScore}` : `Marcador del rival: ${rivalScore}`}>
+            {rightScore}
           </p>
         </div>
       </div>
@@ -214,6 +262,8 @@ export default function GameArena({
                 <p className="mt-2 text-sm font-bold text-reto-gold">Gana la ronda</p>
               )}
             </div>
+          ) : finished ? (
+            <p className="text-sm text-white/60">Partida terminada.</p>
           ) : (
             <p className="text-sm text-white/60">
               {rivalSealed ? 'Jugada sellada' : 'Esperando a tu rival…'}
@@ -225,7 +275,8 @@ export default function GameArena({
             <span aria-hidden="true">🔒</span> Jugada sellada
           </p>
         )}
-        {!rivalSealed && !roundResult && phase !== 'countdown' && (
+        {/* «Esperando a tu rival…» nunca en una partida terminada. */}
+        {!finished && !rivalSealed && !roundResult && phase !== 'countdown' && (
           <p className="mt-1 text-sm text-white/60">Esperando a tu rival…</p>
         )}
       </div>
@@ -283,9 +334,19 @@ export default function GameArena({
         <div className="relative overflow-hidden rounded-card border border-reto-gold/40 bg-reto-gold/10 p-4 text-center" aria-live="polite">
           <div aria-hidden="true" className="energy-rays animate-rays-spin pointer-events-none absolute -inset-24 opacity-50" />
           <div className="relative">
-          <p className="font-display text-lg font-bold">{roundPhrase(roundResult.myMove, roundResult.rivalMove)}</p>
+          {/* Espectador: frase neutra con el ganador de la ronda. */}
+          <p className="font-display text-lg font-bold">
+            {spectator
+              ? roundPhraseNeutral(
+                  roundResult.myMove,
+                  roundResult.rivalMove,
+                  match.player1Username ?? 'Jugador 1',
+                  match.player2Username ?? 'Jugador 2',
+                )
+              : roundPhrase(roundResult.myMove, roundResult.rivalMove)}
+          </p>
           <p className="mt-1 text-sm text-white/70">
-            Marcador: {formatScore(myScore, rivalScore)}
+            Marcador: {formatScore(leftScore, rightScore)}
           </p>
           {onNextRound && (
             <Button className="mt-3" onClick={onNextRound}>
@@ -348,7 +409,13 @@ export default function GameArena({
           <div aria-hidden="true" className="energy-rays animate-rays-spin pointer-events-none absolute -inset-24 opacity-50" />
           <div className="relative">
           <h2 className="gold-text font-display text-2xl font-black">
-            {iWon ? `¡Ganaste ${formatScore(myScore, rivalScore)}!` : `Perdiste ${formatScore(myScore, rivalScore)}`}
+            {spectator
+              ? match.winnerId
+                ? `Ganó ${winnerName} ${formatScore(match.score1, match.score2)}`
+                : 'Empate'
+              : iWon
+                ? `¡Ganaste ${formatScore(myScore, rivalScore)}!`
+                : `Perdiste ${formatScore(myScore, rivalScore)}`}
           </h2>
           <div className="mt-4 flex flex-wrap justify-center gap-2">
             <Button onClick={onRematch}>Revancha</Button>

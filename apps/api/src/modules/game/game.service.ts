@@ -385,8 +385,13 @@ export class GameService implements OnModuleInit, OnModuleDestroy {
       await client.query('SELECT pg_advisory_xact_lock($1)', [
         DAILY_ADVISORY_LOCK_KEY,
       ]);
+      // Solo vale el reto de hoy si sigue ABIERTO: cuando una pareja
+      // ya lo completó, el reto queda ACCEPTED/COMPLETED y un tercer
+      // jugador se encontraba con CHALLENGE_NOT_OPEN al intentar
+      // jugarlo (el reto del día «fallaba al abrir»). En ese caso se
+      // crea uno nuevo para el mismo día, con el mismo título.
       const existing = await client.query<ChallengeRow>(
-        'SELECT * FROM challenges WHERE creator_id = $1 AND title = $2',
+        "SELECT * FROM challenges WHERE creator_id = $1 AND title = $2 AND status = 'OPEN' ORDER BY created_at DESC LIMIT 1",
         [systemId, title],
       );
       if (existing.rows[0]) return existing.rows[0];
@@ -1472,7 +1477,21 @@ export class GameService implements OnModuleInit, OnModuleDestroy {
     );
     return res.rows.map((r) => {
       const level = this.levelForPoints(r.points, levels);
-      return { ...r, level: level.level, levelTitle: level.title };
+      return {
+        userId: r.user_id,
+        username: r.username,
+        displayName: r.display_name,
+        wins: r.wins,
+        losses: r.losses,
+        ties: r.ties,
+        matchesPlayed: r.matches_played,
+        points: r.points,
+        currentStreak: r.current_streak,
+        bestStreak: r.best_streak,
+        position: r.rank,
+        level: level.level,
+        levelTitle: level.title,
+      };
     });
   }
 
@@ -1511,9 +1530,20 @@ export class GameService implements OnModuleInit, OnModuleDestroy {
       rank = Number(rankRes.rows[0]?.rank ?? 0) + 1;
     }
     const level = this.levelForPoints(stats.points, levels);
+    // La fila de `rankings` no trae username/display_name (son de
+    // `users`): se toman del usuario ya cargado, no de la fila.
     return {
-      ...stats,
-      rank,
+      userId: user.id,
+      username: user.username,
+      displayName: user.display_name,
+      wins: stats.wins,
+      losses: stats.losses,
+      ties: stats.ties,
+      matchesPlayed: stats.matches_played,
+      points: stats.points,
+      currentStreak: stats.current_streak,
+      bestStreak: stats.best_streak,
+      position: rank,
       level: level.level,
       levelTitle: level.title,
     };

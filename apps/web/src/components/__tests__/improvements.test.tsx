@@ -139,6 +139,110 @@ describe('Modo espectador', () => {
     expect(screen.getByRole('button', { name: /Papel/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Tijera/ })).toBeInTheDocument();
   });
+
+  it('espectador de una partida terminada: marcador neutro, sin «Perdiste» ni espera', () => {
+    const finished: Match = {
+      ...match,
+      status: 'FINISHED',
+      score1: 0,
+      score2: 1,
+      winnerId: 'u2',
+      finishedAt: new Date().toISOString(),
+    };
+    render(
+      <GameArena
+        match={finished}
+        meId="u3"
+        meName="Espectador"
+        opponentName="Alcon"
+        connection="connected"
+        spectator
+        onMove={vi.fn()}
+        onRematch={vi.fn()}
+        onLeave={vi.fn()}
+      />,
+    );
+    // El marcador no se invierte: Jhon (jugador 1) 0, Alcon (jugador 2) 1.
+    expect(screen.getByLabelText('Marcador de Jhon: 0')).toBeInTheDocument();
+    expect(screen.getByLabelText('Marcador de Alcon: 1')).toBeInTheDocument();
+    // Texto neutro con el ganador, nunca «Perdiste» para quien no jugó.
+    expect(screen.getByText('Ganó Alcon 0–1')).toBeInTheDocument();
+    expect(screen.queryByText(/Perdiste/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Ganaste/)).not.toBeInTheDocument();
+    // Nada de «Esperando a tu rival…» en una partida terminada.
+    expect(screen.queryByText(/Esperando a tu rival/)).not.toBeInTheDocument();
+    expect(screen.getByText('Partida terminada.')).toBeInTheDocument();
+    // El anuncio para lectores de pantalla también es neutro.
+    expect(screen.getByText('Ganó Alcon 0–1.')).toBeInTheDocument();
+    expect(screen.queryByText(/Vas /)).not.toBeInTheDocument();
+  });
+
+  it('espectador en vivo: el anuncio no dice «Vas» ni «Ganas/Pierdes la ronda»', () => {
+    render(
+      <GameArena
+        match={match}
+        meId="u3"
+        meName="Espectador"
+        opponentName="Alcon"
+        connection="connected"
+        spectator
+        onMove={vi.fn()}
+        onRematch={vi.fn()}
+        onLeave={vi.fn()}
+      />,
+    );
+    // Anuncio inicial neutro: nombres y marcador, sin segunda persona.
+    expect(screen.getByText(/Jhon 1 a 0 Alcon/)).toBeInTheDocument();
+    expect(screen.queryByText(/Vas /)).not.toBeInTheDocument();
+  });
+
+  it('espectador con resultado de ronda: anuncia quién ganó la ronda', () => {
+    render(
+      <GameArena
+        match={match}
+        meId="u3"
+        meName="Espectador"
+        opponentName="Alcon"
+        connection="connected"
+        spectator
+        roundResult={{ myMove: 'ROCK', rivalMove: 'SCISSORS' }}
+        onMove={vi.fn()}
+        onRematch={vi.fn()}
+        onLeave={vi.fn()}
+      />,
+    );
+    // Piedra (Jhon, jugador 1) rompe Tijera: gana Jhon, no «Ganas».
+    // La frase aparece dos veces: anuncio para lectores de pantalla
+    // y tarjeta visible del resultado de la ronda.
+    expect(screen.getAllByText(/Jhon gana la ronda/)).toHaveLength(2);
+    expect(screen.queryByText(/Ganas la ronda/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Pierdes la ronda/)).not.toBeInTheDocument();
+  });
+
+  it('jugador que pierde ve «Perdiste» con su marcador a la izquierda', () => {
+    const finished: Match = {
+      ...match,
+      status: 'FINISHED',
+      score1: 0,
+      score2: 1,
+      winnerId: 'u2',
+      finishedAt: new Date().toISOString(),
+    };
+    render(
+      <GameArena
+        match={finished}
+        meId="u1"
+        meName="Jhon"
+        opponentName="Alcon"
+        connection="connected"
+        onMove={vi.fn()}
+        onRematch={vi.fn()}
+        onLeave={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('Perdiste 0–1')).toBeInTheDocument();
+    expect(screen.getByLabelText('Tu marcador: 0')).toBeInTheDocument();
+  });
 });
 
 describe('Tarjetas de juegos', () => {

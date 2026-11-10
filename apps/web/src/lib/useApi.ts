@@ -29,7 +29,11 @@ export function apiErrorMessage(err: unknown): string {
   return 'Algo salió mal. Inténtalo de nuevo.';
 }
 
-export function useApiData<T>(fetcher: () => Promise<T>, depsKey: string): LoadResult<T> {
+export function useApiData<T>(
+  fetcher: () => Promise<T>,
+  depsKey: string,
+  pollMs?: number,
+): LoadResult<T> {
   const [status, setStatus] = useState<LoadStatus>('loading');
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,21 +57,41 @@ export function useApiData<T>(fetcher: () => Promise<T>, depsKey: string): LoadR
         setError(apiErrorMessage(err));
         setStatus('error');
       });
+    // Refresco periódico opcional (p. ej. la lista de personas en
+    // línea, que cambia sin que el usuario haga nada).
+    let interval: ReturnType<typeof setInterval> | undefined;
+    if (pollMs && pollMs > 0) {
+      interval = setInterval(() => {
+        if (!cancelled) setNonce((n) => n + 1);
+      }, pollMs);
+    }
     return () => {
       cancelled = true;
+      if (interval) clearInterval(interval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [depsKey, nonce]);
+  }, [depsKey, nonce, pollMs]);
 
   const reload = useCallback(() => setNonce((n) => n + 1), []);
   return { status, data, error, reload };
 }
 
-/** Normaliza respuestas paginadas o listas simples. */
-export function asList<T>(res: { data: T[] } | T[] | null | undefined): T[] {
+/** Normaliza respuestas paginadas o listas simples. Acepta tanto
+ * `data` (billetera, admin) como `items` (retos y partidas de la API
+ * de juego): antes solo se leía `data` y las listas de retos públicos
+ * y de partidas llegaban siempre vacías aunque la API devolviera retos
+ * y partidas, así que la portada y /retos decían «No hay retos» y
+ * /partidas «Aún no tienes partidas». */
+export function asList<T>(
+  res:
+    | { data?: T[]; items?: T[]; total?: number; page?: number; limit?: number }
+    | T[]
+    | null
+    | undefined,
+): T[] {
   if (!res) return [];
   if (Array.isArray(res)) return res;
-  return res.data ?? [];
+  return res.data ?? res.items ?? [];
 }
 
 export function asTotal<T>(res: { total: number } | T[] | null | undefined, list: T[]): number {

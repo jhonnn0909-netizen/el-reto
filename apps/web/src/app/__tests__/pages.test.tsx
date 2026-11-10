@@ -61,7 +61,39 @@ describe('Retos', () => {
     });
     render(<ChallengesPage />);
     expect(await screen.findByText('No hay retos públicos ahora mismo.')).toBeInTheDocument();
-    expect(screen.getByText(/Eres la única persona en línea ahora/)).toBeInTheDocument();
+    expect(screen.getByText(/No hay nadie en línea ahora mismo/)).toBeInTheDocument();
+  });
+
+  it('muestra los retos públicos cuando la API devuelve `items`', async () => {
+    installFetch((url) => {
+      if (url.includes('/presence/online')) return { body: [] };
+      if (url.includes('/challenges')) {
+        return {
+          body: {
+            items: [
+              {
+                id: 'c1',
+                creatorId: 'u1',
+                creatorUsername: 'Alcon',
+                visibility: 'PUBLIC',
+                format: 'BEST_OF_3',
+                stakeCredits: 0,
+                status: 'OPEN',
+                expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+                createdAt: new Date().toISOString(),
+              },
+            ],
+            total: 1,
+            page: 1,
+            limit: 20,
+          },
+        };
+      }
+      return { body: {} };
+    });
+    render(<ChallengesPage />);
+    expect(await screen.findByText('Alcon')).toBeInTheDocument();
+    expect(screen.queryByText('No hay retos públicos ahora mismo.')).not.toBeInTheDocument();
   });
 });
 

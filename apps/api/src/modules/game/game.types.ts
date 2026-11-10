@@ -107,8 +107,27 @@ export interface RankingRow {
   best_streak: number;
 }
 
-export interface RankingView extends RankingRow {
-  rank: number;
+/**
+ * Vista de ranking para el cliente (camelCase, como el resto de la
+ * API). La fila de BD es snake_case (RankingRow) y nunca se expone
+ * tal cual: antes se devolvía la fila cruda y el cliente leía
+ * `matchesPlayed` / `currentStreak` / `bestStreak` / `position` como
+ * undefined, así que el perfil mostraba «Partidas 0» aunque el
+ * usuario tuviera victorias y derrotas.
+ */
+export interface RankingView {
+  userId: string;
+  username: string;
+  displayName: string;
+  wins: number;
+  losses: number;
+  ties: number;
+  matchesPlayed: number;
+  points: number;
+  currentStreak: number;
+  bestStreak: number;
+  /** Posición en el ranking (1 = primero); null si aún no tiene fila. */
+  position: number | null;
   level: number;
   levelTitle: string;
 }

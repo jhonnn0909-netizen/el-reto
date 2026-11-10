@@ -37,3 +37,17 @@ export function timeAgo(iso: string, now = Date.now()): string {
 export function formatScore(score1: number, score2: number): string {
   return `${score1}–${score2}`;
 }
+
+/**
+ * Signo y color de un movimiento de billetera (lo que ve el usuario):
+ * CREDIT = entra dinero («+», verde), DEBIT = sale dinero («−», rojo),
+ * NEUTRAL = movimiento interno sin cambio de saldo (sin signo, gris).
+ */
+export function movementSign(direction: 'DEBIT' | 'CREDIT' | 'NEUTRAL'): {
+  sign: string;
+  className: string;
+} {
+  if (direction === 'CREDIT') return { sign: '+', className: 'text-reto-success' };
+  if (direction === 'DEBIT') return { sign: '−', className: 'text-reto-error' };
+  return { sign: '', className: 'text-white/60' };
+}

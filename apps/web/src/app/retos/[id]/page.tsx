@@ -67,7 +67,9 @@ export default function ChallengeDetailPage() {
       <div className="mx-auto max-w-lg">
         <PageHeader title="Reto no disponible" />
         <div role="alert" className="rounded-card border border-reto-error/50 bg-reto-error/10 p-4">
-          <p className="text-sm">Este reto ya terminó o fue cancelado.</p>
+          {/* Se muestra el error real, no un texto fijo: un fallo
+            transitorio de red o de sesión no es «el reto ya terminó». */}
+          <p className="text-sm">{challenge.error ?? 'Este reto ya terminó o fue cancelado.'}</p>
           <Link href="/retos" className="mt-3 inline-block">
             <Button variant="secondary">Ver retos disponibles</Button>
           </Link>

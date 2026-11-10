@@ -33,6 +33,7 @@ export default function MatchPage() {
   const [status, setStatus] = useState<'loading' | 'error' | 'ok'>('loading');
   const [error, setError] = useState<string | null>(null);
   const [connection, setConnection] = useState<ConnectionStatus>('reconnecting');
+  const [everConnected, setEverConnected] = useState(false);
   const [rivalSealed, setRivalSealed] = useState(false);
   const [roundResult, setRoundResult] = useState<RoundResult | null>(null);
   const [messages, setMessages] = useState<MatchMessage[]>([]);
@@ -78,6 +79,16 @@ export default function MatchPage() {
     gameApi.presence().then(setPresence).catch(() => setPresence([]));
   }, [load]);
 
+  // La lista de personas en línea se refresca cada 20 s (igual que el
+  // latido de presencia que envía el panel).
+  useEffect(() => {
+    if (!user) return;
+    const timer = setInterval(() => {
+      gameApi.presence().then(setPresence).catch(() => undefined);
+    }, 20000);
+    return () => clearInterval(timer);
+  }, [user]);
+
   // WebSocket con respaldo REST.
   useEffect(() => {
     if (!match || !user) return;
@@ -90,12 +101,16 @@ export default function MatchPage() {
         socketRef.current = socket;
         const spectator = match.player1Id !== user.id && match.player2Id !== user.id;
         socket.emit(spectator ? 'match:watch' : 'match:join', { matchId: id });
-        socket.on('connect', () => setConnection('connected'));
+        socket.on('connect', () => {
+          setConnection('connected');
+          setEverConnected(true);
+        });
         socket.on('disconnect', () => setConnection('reconnecting'));
         socket.on('connect_error', () => setConnection('offline'));
         socket.on('match:state', (state: Match) => {
           setMatch(state);
           setConnection('connected');
+          setEverConnected(true);
         });
         socket.on('match:committed', (payload: { playerId: string }) => {
           if (payload.playerId !== user.id) setRivalSealed(true);
@@ -107,9 +122,13 @@ export default function MatchPage() {
         // el resultado de la ronda nunca se mostraba y el marcador
         // quedaba en "NaN a NaN".
         socket.on('round:result', (payload: { moves: { player1: Move | null; player2: Move | null }; result: string; score: { player1: number; player2: number } }) => {
+          // Espectador: orientación neutra por jugador 1/2. Antes el
+          // espectador caía en la rama «no soy jugador 1» y el vídeo
+          // de la jugada se mostraba bajo el nombre equivocado.
+          const isSpectator = match.player1Id !== user.id && match.player2Id !== user.id;
           const amPlayer1 = match.player1Id === user.id;
-          const myMove = amPlayer1 ? payload.moves.player1 : payload.moves.player2;
-          const rivalMove = amPlayer1 ? payload.moves.player2 : payload.moves.player1;
+          const myMove = isSpectator || amPlayer1 ? payload.moves.player1 : payload.moves.player2;
+          const rivalMove = isSpectator || amPlayer1 ? payload.moves.player2 : payload.moves.player1;
           if (myMove && rivalMove) {
             setRoundResult({ myMove, rivalMove });
             setRivalSealed(false);
@@ -264,7 +283,7 @@ export default function MatchPage() {
     // columna central máx. 660 px); el panel en línea (200 px) va a un
     // lado en escritorio y fijo arriba en el teléfono (OnlinePanel).
     <div className="mx-auto w-full max-w-[1080px] min-[900px]:grid min-[900px]:grid-cols-[minmax(0,1fr)_200px] min-[900px]:items-start min-[900px]:gap-7">
-      <OnlinePanel people={presence} />
+      <OnlinePanel people={presence} meId={user.id} />
       <div className="mx-auto flex w-full max-w-2xl min-w-0 flex-col gap-4 min-[900px]:col-start-1 min-[900px]:row-start-1">
       <Toast message={toast} onClose={() => setToast(null)} />
       <GameArena
@@ -273,6 +292,7 @@ export default function MatchPage() {
         meName={user.displayName}
         opponentName={opponentName}
         connection={connection}
+        everConnected={everConnected}
         spectator={spectator}
         rivalSealed={rivalSealed}
         roundResult={roundResult}

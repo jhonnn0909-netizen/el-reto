@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { WalletModule } from '../wallet/wallet.module';
 import { AdminWalletController } from './admin-wallet.controller';
+import { AdminController } from './admin.controller';
+import { AdminService } from './admin.service';
 
 /**
  * Módulo Admin — SOLO lo de billetera en esta entrega
@@ -15,6 +17,7 @@ import { AdminWalletController } from './admin-wallet.controller';
  */
 @Module({
   imports: [AuthModule, WalletModule],
-  controllers: [AdminWalletController],
+  controllers: [AdminWalletController, AdminController],
+  providers: [AdminService],
 })
 export class AdminModule {}

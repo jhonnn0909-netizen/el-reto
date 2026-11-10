@@ -33,11 +33,14 @@ export default function OnlineList({
   inviteeName,
   onChallenge,
   loading = false,
+  meId,
 }: {
   people: OnlinePerson[];
   inviteeName?: string | null;
   onChallenge?: (person: OnlinePerson) => void;
   loading?: boolean;
+  /** Id del usuario actual: se marca como «Tú» y no se le reta. */
+  meId?: string | null;
 }) {
   const statuses: PresenceStatus[] = [
     'LIBRE',
@@ -72,21 +75,27 @@ export default function OnlineList({
           Cargando personas en línea…
         </p>
       ) : people.length === 0 ? (
-        <p className="mt-3 text-sm text-white/60">Eres la única persona en línea ahora.</p>
+        <p className="mt-3 text-sm text-white/60">No hay nadie en línea ahora mismo.</p>
       ) : (
         <ul className="mt-2 flex flex-col">
-          {people.map((p) => (
-            <li key={p.userId} className="flex flex-wrap items-center gap-1.5 border-b border-reto-gold/10 py-[5px] last:border-b-0">
-              <span aria-hidden="true" className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${PRESENCE_META[p.status].dot}`} />
-              <span className="min-w-0 flex-1 truncate text-xs font-semibold">{p.username}</span>
-              <PresenceBadge status={p.status} />
-              {p.status === 'LIBRE' && onChallenge && (
-                <Button variant="secondary" className="min-h-[32px] px-2 py-0.5 text-[11px]" onClick={() => onChallenge(p)}>
-                  Retar
-                </Button>
-              )}
-            </li>
-          ))}
+          {people.map((p) => {
+            const isMe = meId != null && p.userId === meId;
+            return (
+              <li key={p.userId} className="flex flex-wrap items-center gap-1.5 border-b border-reto-gold/10 py-[5px] last:border-b-0">
+                <span aria-hidden="true" className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${PRESENCE_META[p.status].dot}`} />
+                <span className="min-w-0 flex-1 truncate text-xs font-semibold">
+                  {p.username}
+                  {isMe && <span className="text-white/50"> (tú)</span>}
+                </span>
+                <PresenceBadge status={p.status} />
+                {!isMe && p.status === 'LIBRE' && onChallenge && (
+                  <Button variant="secondary" className="min-h-[32px] px-2 py-0.5 text-[11px]" onClick={() => onChallenge(p)}>
+                    Retar
+                  </Button>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
 

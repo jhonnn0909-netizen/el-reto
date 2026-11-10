@@ -123,6 +123,27 @@ export interface TransactionResponse {
   description: string;
   /** Importe de la operación en créditos (entero). */
   amount: number;
+  /**
+   * Sentido para el usuario (lo que muestra la pantalla de movimientos):
+   * - `CREDIT`: entra dinero (depósito, bono, premio, reembolso) → «+».
+   * - `DEBIT`: sale dinero (retiro) → «−».
+   * - `NEUTRAL`: movimiento interno sin cambio de saldo total
+   *   (reserva/liberación de apuesta).
+   * Se calcula del efecto neto sobre el saldo total del usuario. OJO:
+   * en el ledger interno un DEBIT en la cuenta del usuario SUMA y un
+   * CREDIT RESTA (convención de wallet.types.ts); este campo ya viene
+   * traducido para que el cliente no tenga que conocer esa convención.
+   * Antes no existía y el cliente leía `direction` como undefined, así
+   * que TODOS los movimientos se mostraban con «−», también los ingresos.
+   */
+  direction: 'CREDIT' | 'DEBIT' | 'NEUTRAL';
+  /**
+   * Saldo total del usuario (disponible + reservado) DESPUÉS de la
+   * operación (el `balance_after` del asiento de su cuenta). El
+   * historial lo muestra como «Saldo resultante»; antes no se enviaba
+   * y la página lo leía como undefined.
+   */
+  balanceAfter: number;
   currency: typeof CURRENCY;
   demo: typeof DEMO;
   createdAt: string;

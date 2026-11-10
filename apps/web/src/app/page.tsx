@@ -45,6 +45,7 @@ export default function HomePage() {
   const presence = useApiData<OnlinePerson[]>(
     useCallback(async () => gameApi.presence(), []),
     'home-presence',
+    20000,
   );
 
   async function playDaily() {
@@ -55,7 +56,7 @@ export default function HomePage() {
     }
     setDailyBusy(true);
     try {
-      const match = await gameApi.acceptChallenge(daily.challengeId);
+      const match = await gameApi.acceptChallenge(daily.id);
       router.push(`/partidas/${match.id}`);
     } catch {
       setToast('No pudimos abrir el reto del día. Inténtalo de nuevo.');
@@ -79,6 +80,7 @@ export default function HomePage() {
       <OnlinePanel
         people={Array.isArray(presence.data) ? presence.data : []}
         loading={presence.status === 'loading'}
+        meId={user?.id}
       />
       <div className="flex min-w-0 flex-col gap-8 min-[900px]:col-start-1 min-[900px]:row-start-1">
       <Toast message={toast} kind="error" onClose={() => setToast(null)} />

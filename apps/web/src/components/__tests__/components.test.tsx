@@ -64,12 +64,19 @@ describe('OnlineList', () => {
 
   it('sin personas muestra el estado vacío', () => {
     render(<OnlineList people={[]} />);
-    expect(screen.getByText(/Eres la única persona en línea ahora/)).toBeInTheDocument();
+    expect(screen.getByText(/No hay nadie en línea ahora mismo/)).toBeInTheDocument();
   });
 
   it('cada LIBRE tiene botón Retar', () => {
     render(<OnlineList people={people} onChallenge={vi.fn()} />);
     expect(screen.getAllByRole('button', { name: 'Retar' })).toHaveLength(1);
+  });
+
+  it('el usuario actual se marca como «Tú» y no se le puede retar', () => {
+    render(<OnlineList people={people} meId="u1" onChallenge={vi.fn()} />);
+    expect(screen.getByText('(tú)')).toBeInTheDocument();
+    // Solo hay un LIBRE (Alcon, que es el propio usuario): sin botón Retar.
+    expect(screen.queryByRole('button', { name: 'Retar' })).not.toBeInTheDocument();
   });
 });
 

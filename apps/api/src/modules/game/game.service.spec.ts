@@ -119,7 +119,11 @@ class FakeDb {
       return ok([row]);
     }
     if (sql.includes('SELECT * FROM challenges WHERE creator_id = $1 AND title = $2')) {
-      return ok(this.challenges.filter((c) => c.creator_id === params[0] && c.title === params[1]));
+      let list = this.challenges.filter((c) => c.creator_id === params[0] && c.title === params[1]);
+      // El reto diario solo vale si sigue ABIERTO (el servicio filtra
+      // status = 'OPEN'): un reto ya aceptado/completado no cuenta.
+      if (sql.includes("status = 'OPEN'")) list = list.filter((c) => c.status === 'OPEN');
+      return ok(list);
     }
     if (sql.includes('SELECT * FROM challenges WHERE invite_code = $1')) {
       return ok(this.challenges.filter((c) => c.invite_code === params[0]));
@@ -568,16 +572,19 @@ describe('GameService', () => {
     });
     const ranking = await service.getRanking(10);
     expect(ranking).toHaveLength(2);
-    const anaRow = ranking.find((r) => r.user_id === 'u1')!;
+    const anaRow = ranking.find((r) => r.userId === 'u1')!;
     expect(anaRow.wins).toBe(1);
     expect(anaRow.points).toBe(3);
-    expect(anaRow.current_streak).toBe(1);
-    expect(anaRow.best_streak).toBe(1);
+    expect(anaRow.matchesPlayed).toBe(1);
+    expect(anaRow.currentStreak).toBe(1);
+    expect(anaRow.bestStreak).toBe(1);
+    expect(anaRow.position).toBe(1);
     expect(anaRow.level).toBe(1);
     expect(anaRow.levelTitle).toBe('Novato');
-    const brunoRow = ranking.find((r) => r.user_id === 'u2')!;
+    const brunoRow = ranking.find((r) => r.userId === 'u2')!;
     expect(brunoRow.losses).toBe(1);
-    expect(brunoRow.current_streak).toBe(0);
+    expect(brunoRow.matchesPlayed).toBe(1);
+    expect(brunoRow.currentStreak).toBe(0);
     expect(fake.matches[0].status).toBe('FINISHED');
   });
 
@@ -732,27 +739,28 @@ describe('GameService', () => {
       await playRound(service, matchId, 1, ana, 'ROCK', bruno, 'SCISSORS');
     }
     let ranking = await service.getRanking(10);
-    let anaRow = ranking.find((r) => r.user_id === 'u1')!;
-    expect(anaRow.current_streak).toBe(2);
-    expect(anaRow.best_streak).toBe(2);
+    let anaRow = ranking.find((r) => r.userId === 'u1')!;
+    expect(anaRow.currentStreak).toBe(2);
+    expect(anaRow.bestStreak).toBe(2);
     // Ana pierde: racha a 0, mejor se mantiene.
     const { matchId } = await startMatch(service, ana, bruno, 'BEST_OF_1', 0);
     await playRound(service, matchId, 1, ana, 'SCISSORS', bruno, 'ROCK');
     ranking = await service.getRanking(10);
-    anaRow = ranking.find((r) => r.user_id === 'u1')!;
-    expect(anaRow.current_streak).toBe(0);
-    expect(anaRow.best_streak).toBe(2);
+    anaRow = ranking.find((r) => r.userId === 'u1')!;
+    expect(anaRow.currentStreak).toBe(0);
+    expect(anaRow.bestStreak).toBe(2);
     // Empate final por 5 empates seguidos: la racha no cambia.
     const { matchId: tieId } = await startMatch(service, ana, bruno, 'BEST_OF_1', 0);
     for (let r = 1; r <= 5; r++) {
       await playRound(service, tieId, r, ana, 'ROCK', bruno, 'ROCK');
     }
     ranking = await service.getRanking(10);
-    anaRow = ranking.find((r) => r.user_id === 'u1')!;
+    anaRow = ranking.find((r) => r.userId === 'u1')!;
     expect(anaRow.ties).toBe(1);
     expect(anaRow.points).toBe(7); // 3+3+0+1
-    expect(anaRow.current_streak).toBe(0); // seguía en 0 tras la derrota
-    expect(anaRow.best_streak).toBe(2);
+    expect(anaRow.matchesPlayed).toBe(4);
+    expect(anaRow.currentStreak).toBe(0); // seguía en 0 tras la derrota
+    expect(anaRow.bestStreak).toBe(2);
   });
 
   it('el invitado no entra en el ranking', async () => {
@@ -760,8 +768,8 @@ describe('GameService', () => {
     const { matchId } = await startMatch(service, ana, guest, 'BEST_OF_1', 0);
     await playRound(service, matchId, 1, ana, 'SCISSORS', guest, 'ROCK');
     const ranking = await service.getRanking(10);
-    expect(ranking.find((r) => r.user_id === 'g1')).toBeUndefined();
-    expect(ranking.find((r) => r.user_id === 'u2')).toBeUndefined();
+    expect(ranking.find((r) => r.userId === 'g1')).toBeUndefined();
+    expect(ranking.find((r) => r.userId === 'u2')).toBeUndefined();
     expect(ranking).toHaveLength(1); // solo Ana (derrota)
     expect(ranking[0].losses).toBe(1);
   });
@@ -776,8 +784,11 @@ describe('GameService', () => {
     expect(row.points).toBe(100);
     expect(row.level).toBe(2);
     expect(row.levelTitle).toBe('Retador');
-    expect(row.current_streak).toBe(4);
-    expect(row.rank).toBe(1);
+    expect(row.matchesPlayed).toBe(45);
+    expect(row.currentStreak).toBe(4);
+    expect(row.bestStreak).toBe(7);
+    expect(row.position).toBe(1);
+    expect(row.username).toBe('ana');
     await expect(service.getRankingByUsername('nadie')).rejects.toThrow('USER_NOT_FOUND');
   });
 
@@ -803,6 +814,21 @@ describe('GameService', () => {
     expect(first.title).toBe(dailyTitleFor(new Date()));
     expect(first.format).toBe(dailyFormatFor(new Date()));
     expect(first.stakeCredits).toBe(0);
+  });
+
+  it('reto diario: si el reto de hoy ya se cerró, se crea uno nuevo abierto', async () => {
+    const { fake, service } = setup();
+    const first = await service.getDailyChallenge(ana);
+    // Una pareja ya lo jugó y el reto quedó ACCEPTED: un tercer
+    // jugador debe poder abrir el reto del día, no encontrarse con
+    // CHALLENGE_NOT_OPEN.
+    fake.challenges[0].status = 'ACCEPTED';
+    const third = await service.getDailyChallenge(carla);
+    expect(third.id).not.toBe(first.id);
+    expect(third.status).toBe('OPEN');
+    expect(third.daily).toBe(true);
+    expect(third.title).toBe(dailyTitleFor(new Date()));
+    expect(third.stakeCredits).toBe(0);
   });
 
   it('reto diario: dos aceptantes juegan y el ganador cobra el premio PROMO', async () => {

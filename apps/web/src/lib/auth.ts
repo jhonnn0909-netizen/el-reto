@@ -128,6 +128,8 @@ export const gameApi = {
   rankingOf: (username: string) =>
     api.get<RankingEntry>(`/ranking/${encodeURIComponent(username)}`),
   presence: () => api.get<OnlinePerson[]>('/presence/online'),
+  /** Latido de presencia (el panel en línea lo envía cada 20 s). */
+  heartbeat: () => api.post<{ ok: boolean }>('/presence/heartbeat'),
   /** Catálogo de juegos de la plataforma (mejora: área de juegos). */
   games: () => api.get<Game[] | Paginated<Game>>('/games'),
   /** Reto del día (mejora: reto diario, premio 100 créditos DEMO). */

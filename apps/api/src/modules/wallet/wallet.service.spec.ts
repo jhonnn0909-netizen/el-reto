@@ -616,6 +616,19 @@ describe('WalletService', () => {
     expect(page2.data).toHaveLength(2);
   });
 
+  it('movements: el sentido es CREDIT para ingresos, DEBIT para retiros y NEUTRAL para reservas', async () => {
+    await service.deposit(USER_1, 100, 'dep-dir-1');
+    await service.withdraw(USER_1, 50, 'ret-dir-1');
+    await service.holdStake(USER_1, 'match-dir-1', 100);
+    const all = await service.listMovements(USER_1, { page: 1, limit: 10 } as any);
+    const byType = new Map(all.data.map((m) => [m.type, m.direction]));
+    expect(byType.get('WELCOME_BONUS')).toBe('CREDIT');
+    expect(byType.get('DEPOSIT')).toBe('CREDIT');
+    expect(byType.get('WITHDRAWAL')).toBe('DEBIT');
+    // La reserva mueve available <-> reserved: el saldo total no cambia.
+    expect(byType.get('BET_HOLD')).toBe('NEUTRAL');
+  });
+
   it('retiro de créditos de origen promocional no deja MINT en negativo', async () => {
     await service.createPromoCode(ADMIN_1, { code: 'promo-500', credits: 500, maxUses: 10 } as any);
     await service.redeemPromo(USER_1, 'promo-500');

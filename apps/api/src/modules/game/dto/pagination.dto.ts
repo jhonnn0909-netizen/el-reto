@@ -1,5 +1,5 @@
 import { IsBoolean, IsEnum, IsInt, IsOptional, Max, Min } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 
 export class PaginationDto {
   @IsOptional()
@@ -21,8 +21,11 @@ export class ListChallengesDto extends PaginationDto {
   @IsEnum(['BEST_OF_1', 'BEST_OF_3', 'BEST_OF_5', 'FREE'])
   format?: 'BEST_OF_1' | 'BEST_OF_3' | 'BEST_OF_5' | 'FREE';
 
+  // `?mine=false` llegaba como la cadena "false" y `@Type(() => Boolean)`
+  // la convertía en `true` (Boolean("false") === true): la lista
+  // pública devolvía solo los retos propios. Solo "true" (o true) es sí.
   @IsOptional()
-  @Type(() => Boolean)
+  @Transform(({ value }) => value === true || value === 'true')
   @IsBoolean()
   mine?: boolean = false;
 }

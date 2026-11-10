@@ -37,7 +37,14 @@ export interface WalletMovement {
   type: string;
   status: string;
   description: string;
-  direction: 'DEBIT' | 'CREDIT';
+  /**
+   * Sentido para el usuario (lo calcula la API del efecto neto sobre
+   * el saldo): CREDIT = entra dinero («+»), DEBIT = sale dinero («−»),
+   * NEUTRAL = movimiento interno sin cambio de saldo (reserva de
+   * apuesta). Antes la API no lo enviaba y el cliente lo leía como
+   * undefined, así que todo se mostraba con «−».
+   */
+  direction: 'DEBIT' | 'CREDIT' | 'NEUTRAL';
   amount: number;
   balanceAfter: number;
   createdAt: string;
@@ -86,7 +93,8 @@ export interface RankingEntry {
   ties: number;
   matchesPlayed: number;
   points: number;
-  position: number;
+  /** Posición en el ranking; null si el usuario aún no tiene fila. */
+  position: number | null;
   /** Racha actual de victorias consecutivas. */
   currentStreak?: number;
   /** Mejor racha de victorias consecutivas. */
@@ -110,14 +118,21 @@ export interface Game {
   players: number;
 }
 
-/** Reto del día (GET /challenges/daily). */
+/** Reto del día (GET /challenges/daily): es la vista estándar de reto
+ * (la API devuelve toChallengeView con daily: true). Antes el tipo
+ * pedía `challengeId` y `date`, campos que la API nunca devuelve:
+ * `daily.challengeId` era undefined y aceptar el reto del día fallaba
+ * siempre (400) con «No pudimos abrir el reto del día». */
 export interface DailyChallenge {
   id: string;
-  challengeId: string;
+  title?: string | null;
   format: ChallengeFormat;
   stakeCredits: number;
-  title: string;
-  date: string;
+  status: 'OPEN' | 'ACCEPTED' | 'CANCELLED' | 'EXPIRED' | 'COMPLETED';
+  daily: boolean;
+  matchId?: string | null;
+  expiresAt: string;
+  createdAt: string;
 }
 
 /** Mensaje rápido dentro de una partida (WS match:message). */
@@ -156,6 +171,8 @@ export interface AppNotification {
 
 export interface Paginated<T> {
   data: T[];
+  /** La API de juego pagina con `items`; la de billetera/admin con `data`. */
+  items?: T[];
   page: number;
   limit: number;
   total: number;

@@ -5,7 +5,7 @@
 import { useMemo, useState } from 'react';
 import { walletApi } from '../../../lib/auth';
 import { asList, asTotal, useApiData } from '../../../lib/useApi';
-import { formatCredits, formatDateTime } from '../../../lib/format';
+import { formatCredits, formatDateTime, movementSign } from '../../../lib/format';
 import type { WalletMovement } from '../../../lib/types';
 import { DemoBanner } from '../../../components/DemoBadge';
 import EmptyState from '../../../components/EmptyState';
@@ -92,22 +92,25 @@ export default function HistoryPage() {
       {filtered.length > 0 && (
         <>
           <ul className="flex flex-col gap-2">
-            {filtered.map((m) => (
-              <li key={m.id} className="rounded-card border border-reto-gold/40 bg-reto-surface px-4 py-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold">{m.description}</p>
-                    <p className="text-xs text-white/50">{formatDateTime(m.createdAt)} · {m.type}</p>
+            {filtered.map((m) => {
+              const s = movementSign(m.direction);
+              return (
+                <li key={m.id} className="rounded-card border border-reto-gold/40 bg-reto-surface px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold">{m.description}</p>
+                      <p className="text-xs text-white/50">{formatDateTime(m.createdAt)} · {m.type}</p>
+                    </div>
+                    <p className={`shrink-0 font-mono font-bold ${s.className}`}>
+                      {s.sign}{formatCredits(m.amount)} <span className="text-[11px]">DEMO</span>
+                    </p>
                   </div>
-                  <p className={`shrink-0 font-mono font-bold ${m.direction === 'CREDIT' ? 'text-reto-success' : 'text-reto-error'}`}>
-                    {m.direction === 'CREDIT' ? '+' : '−'}{formatCredits(m.amount)} <span className="text-[11px]">DEMO</span>
+                  <p className="mt-1 text-xs text-white/50">
+                    Saldo resultante: <span className="font-mono text-reto-demo">{formatCredits(m.balanceAfter)} créditos DEMO</span>
                   </p>
-                </div>
-                <p className="mt-1 text-xs text-white/50">
-                  Saldo resultante: <span className="font-mono text-reto-demo">{formatCredits(m.balanceAfter)} créditos DEMO</span>
-                </p>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
           <p className="text-center text-sm text-white/60">
             Mostrando {filtered.length} de {total}

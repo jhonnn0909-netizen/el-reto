@@ -1420,6 +1420,20 @@ export class WalletService {
   ): TransactionResponse {
     const metadata =
       typeof tx.metadata === 'string' ? JSON.parse(tx.metadata) : (tx.metadata ?? {});
+    // Sentido para el usuario (ver TransactionResponse.direction): el
+    // efecto neto de los asientos de la cuenta del usuario sobre su
+    // saldo total. En el ledger, DEBIT suma y CREDIT resta en la cuenta
+    // del usuario; un BET_HOLD/BET_RELEASE mueve available <-> reserved
+    // y su neto es 0 (NEUTRAL).
+    const net = entries
+      .filter((e) => e.account_type === 'USER')
+      .reduce(
+        (acc, e) => acc + (e.direction === 'DEBIT' ? Number(e.amount) : -Number(e.amount)),
+        0,
+      );
+    const direction: 'CREDIT' | 'DEBIT' | 'NEUTRAL' =
+      net > 0 ? 'CREDIT' : net < 0 ? 'DEBIT' : 'NEUTRAL';
+    const userEntry = entries.find((e) => e.account_type === 'USER');
     return {
       id: tx.id,
       idempotencyKey: tx.idempotency_key,
@@ -1430,6 +1444,8 @@ export class WalletService {
       referenceId: tx.reference_id,
       description: tx.description,
       amount: Number(metadata.amount ?? 0),
+      direction,
+      balanceAfter: userEntry ? Number(userEntry.balance_after) : 0,
       currency: CURRENCY,
       demo: DEMO,
       createdAt: new Date(tx.created_at).toISOString(),

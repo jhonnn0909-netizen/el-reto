@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { walletApi } from '../../lib/auth';
 import { apiErrorMessage, useApiData } from '../../lib/useApi';
 import { getStoredUser, isGuestUser } from '../../lib/session';
-import { formatCredits, formatCreditsDemo } from '../../lib/format';
+import { formatCredits, formatCreditsDemo, movementSign } from '../../lib/format';
 import type { WalletMovement, WalletSummary } from '../../lib/types';
 import { DemoBanner, DemoBadge } from '../../components/DemoBadge';
 import WalletCard from '../../components/WalletCard';
@@ -208,17 +208,20 @@ export default function WalletPage() {
         )}
         {movements.status === 'ok' && (movements.data?.length ?? 0) > 0 && (
           <ul className="flex flex-col gap-2">
-            {movements.data!.map((m) => (
-              <li key={m.id} className="flex items-center justify-between gap-3 rounded-card border border-reto-gold/40 bg-reto-surface px-4 py-3 text-sm">
-                <div className="min-w-0">
-                  <p className="truncate font-semibold">{m.description}</p>
-                  <p className="text-xs text-white/50">{new Date(m.createdAt).toLocaleDateString('es-ES')}</p>
-                </div>
-                <p className={`font-mono font-bold ${m.direction === 'CREDIT' ? 'text-reto-success' : 'text-reto-error'}`}>
-                  {m.direction === 'CREDIT' ? '+' : '−'}{formatCredits(m.amount)} <span className="text-[11px]">DEMO</span>
-                </p>
-              </li>
-            ))}
+            {movements.data!.map((m) => {
+              const s = movementSign(m.direction);
+              return (
+                <li key={m.id} className="flex items-center justify-between gap-3 rounded-card border border-reto-gold/40 bg-reto-surface px-4 py-3 text-sm">
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold">{m.description}</p>
+                    <p className="text-xs text-white/50">{new Date(m.createdAt).toLocaleDateString('es-ES')}</p>
+                  </div>
+                  <p className={`font-mono font-bold ${s.className}`}>
+                    {s.sign}{formatCredits(m.amount)} <span className="text-[11px]">DEMO</span>
+                  </p>
+                </li>
+              );
+            })}
           </ul>
         )}
         <Link href="/billetera/historial" className="mt-3 inline-block text-sm text-reto-gold underline underline-offset-2">

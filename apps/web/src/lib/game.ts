@@ -37,6 +37,20 @@ export function roundPhrase(myMove: Move, rivalMove: Move): string {
   return `¡${MOVE_LABELS[rivalMove]} ${VERBS[rivalMove]} ${MOVE_LABELS[myMove].toLowerCase()}! Pierdes la ronda.`;
 }
 
+/**
+ * Anuncio neutro de una ronda para espectadores: nombra al ganador de
+ * la ronda en vez de decir «Ganas»/«Pierdes» a quien no juega.
+ * move1/name1 son del jugador 1 y move2/name2 del jugador 2.
+ */
+export function roundPhraseNeutral(move1: Move, move2: Move, name1: string, name2: string): string {
+  const result = winnerOf(move1, move2);
+  if (result === 0) return `¡${MOVE_LABELS[move1]} contra ${MOVE_LABELS[move2].toLowerCase()}! Empate en la ronda.`;
+  if (result === 1) {
+    return `¡${MOVE_LABELS[move1]} ${VERBS[move1]} ${MOVE_LABELS[move2].toLowerCase()}! ${name1} gana la ronda.`;
+  }
+  return `¡${MOVE_LABELS[move2]} ${VERBS[move2]} ${MOVE_LABELS[move1].toLowerCase()}! ${name2} gana la ronda.`;
+}
+
 export const FORMAT_LABELS: Record<ChallengeFormat, string> = {
   BEST_OF_1: '1 ronda',
   BEST_OF_3: 'Mejor de 3',

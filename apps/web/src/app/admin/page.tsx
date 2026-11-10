@@ -5,7 +5,8 @@
 
 import { adminApi } from '../../lib/auth';
 import { asList, useApiData } from '../../lib/useApi';
-import { formatDateTime } from '../../lib/format';
+import { formatDateTime, movementSign } from '../../lib/format';
+import { getStoredUser } from '../../lib/session';
 import type { Match, User, WalletMovement } from '../../lib/types';
 import EmptyState from '../../components/EmptyState';
 import { ListSkeleton } from '../../components/Spinner';
@@ -16,14 +17,26 @@ export default function AdminPage() {
   const users = useApiData<User[]>(() => adminApi.users(1, 10).then((r) => asList(r)), 'admin-users');
   const matches = useApiData<Match[]>(() => adminApi.matches(1, 10).then((r) => asList(r)), 'admin-matches');
   const transactions = useApiData<WalletMovement[]>(() => adminApi.transactions(1, 10).then((r) => asList(r)), 'admin-transactions');
+  const storedUser = getStoredUser();
 
   if (stats.status === 'loading') return <ListSkeleton count={4} />;
   if (stats.status === 'error') {
+    // El mensaje depende de quién eres: un usuario normal ve un «sin
+    // acceso» claro (la API responde 403); un ADMIN que ve un error es
+    // un fallo de carga, no un permiso. Antes, como /admin/stats no
+    // existía, todo error era 404 y el texto decía «Esto ya no existe».
+    const accessDenied = storedUser !== null && storedUser.role !== 'ADMIN';
     return (
       <div className="mx-auto max-w-2xl">
         <PageHeader title="Administración" />
         <div role="alert" className="rounded-card border border-reto-error/50 bg-reto-error/10 p-4">
-          <p className="text-sm">No tienes acceso a esta pantalla. Solo los administradores pueden verla.</p>
+          <p className="text-sm">
+            {accessDenied
+              ? 'No tienes acceso a esta pantalla. Solo los administradores pueden verla.'
+              : storedUser
+                ? 'No pudimos cargar la administración. Inténtalo de nuevo.'
+                : 'Inicia sesión para ver la administración.'}
+          </p>
           <p className="mt-1 text-xs text-white/60">{stats.error}</p>
           <Button variant="secondary" className="mt-3" onClick={stats.reload}>Reintentar</Button>
         </div>
@@ -89,14 +102,17 @@ export default function AdminPage() {
         {transactions.status === 'error' && <p className="text-sm text-white/60">No pudimos cargar los movimientos.</p>}
         {transactions.status === 'ok' && (transactions.data?.length ?? 0) > 0 && (
           <ul className="flex flex-col gap-2">
-            {transactions.data!.map((t) => (
-              <li key={t.id} className="flex items-center justify-between gap-3 rounded-card border border-reto-gold/40 bg-reto-surface px-4 py-3 text-sm">
-                <span className="truncate">{t.description}</span>
-                <span className={`font-mono font-bold ${t.direction === 'CREDIT' ? 'text-reto-success' : 'text-reto-error'}`}>
-                  {t.direction === 'CREDIT' ? '+' : '−'}{t.amount} DEMO
-                </span>
-              </li>
-            ))}
+            {transactions.data!.map((t) => {
+              const s = movementSign(t.direction);
+              return (
+                <li key={t.id} className="flex items-center justify-between gap-3 rounded-card border border-reto-gold/40 bg-reto-surface px-4 py-3 text-sm">
+                  <span className="truncate">{t.description}</span>
+                  <span className={`font-mono font-bold ${s.className}`}>
+                    {s.sign}{t.amount} DEMO
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>
