@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  scroll-behavior: smooth;
+  background-color: #050505;
+}
+
+body {
+  background-color: #050505;
+  color: #f5f0e1;
+  font-family: Inter, system-ui, sans-serif;
+  line-height: 1.5;
+}
+
+/* Fondo fijo: imagen de juegos y azar (ruleta, ases, dados dorados,
+   fichas de casino) con velo oscuro para que el texto se lea
+   (muestra negro y oro). */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    linear-gradient(rgba(5, 5, 5, 0.42), rgba(5, 5, 5, 0.76)),
+    url('/img/casino.jpg') center / cover no-repeat,
+    #050505;
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* Texto dorado con degradado (muestra negro y oro). */
+.gold-text {
+  background: linear-gradient(180deg, #fff7d6 0%, #f5c542 45%, #c9962e 75%, #ffe98a 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Brillo dorado en la arena (negro y oro). */
+.arena-glow {
+  background: radial-gradient(
+    ellipse at center,
+    rgba(245, 197, 66, 0.22) 0%,
+    rgba(245, 197, 66, 0.06) 45%,
+    transparent 70%
+  );
+}
+
+/* Rayos de energía dorados detrás de la arena y del ganador.
+   Usar junto a `animate-rays-spin` en un elemento posicionado
+   detrás del contenido. */
+.energy-rays {
+  background: repeating-conic-gradient(
+    from 0deg,
+    rgba(245, 197, 66, 0.28) 0deg 6deg,
+    transparent 6deg 18deg
+  );
+  -webkit-mask-image: radial-gradient(circle at center, #000 0%, transparent 68%);
+  mask-image: radial-gradient(circle at center, #000 0%, transparent 68%);
+}
+
+/* Destello dorado (confeti de luz): punto de luz dorada con brillo.
+   El componente Sparkles los posiciona y les aplica
+   `animate-sparkle-fall` (cayendo) o `animate-sparkle-twinkle`
+   (parpadeando). Colores: #ffe98a, #f5c542, #c9962e y #c0c0c0. */
+.gold-sparkle {
+  position: absolute;
+  border-radius: 9999px;
+  background: radial-gradient(circle, #fff7d6 0%, #f5c542 45%, rgba(245, 197, 66, 0) 75%);
+  box-shadow: 0 0 12px 2px rgba(245, 197, 66, 0.65);
+  pointer-events: none;
+}
+
+/* Foco por teclado siempre visible (doc 04 §8.2). */
+:focus-visible {
+  outline: 2px solid #f5c542;
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgba(245, 197, 66, 0.6);
+  color: #1a1206;
+}
+
+/* Movimiento reducido: sin pulso del logo, sin confeti, sin animaciones
+   de entrada ni de manos (doc 04 §9.3). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

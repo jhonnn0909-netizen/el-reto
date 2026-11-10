@@ -1,0 +1,365 @@
+// Arena de la partida en vivo (DESIGN.md §9): marcador, zona del
+// rival con «Jugada sellada», zona propia con las tres manos como
+// botones grandes (mínimo 72 px), cuenta atrás, resultado de ronda,
+// indicador de conexión, revancha y mensajes rápidos (mejora 7).
+// Modo espectador (mejora 5): solo lectura, sin botones de jugada.
+'use client';
+
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import type { Match, MatchMessage, Move } from '../lib/types';
+import { FORMAT_LABELS, MOVE_LABELS, MOVE_ORDER, roundPhrase, totalRoundsLabel, winnerOf } from '../lib/game';
+import { formatScore } from '../lib/format';
+import { playSound, vibrateLose, vibrateWin } from '../lib/sounds';
+import { getPrefs } from '../lib/session';
+import Countdown from './Countdown';
+import Confetti from './Confetti';
+import { CelebrationVideo, Hand, RevealVideo, ShakeVideo } from './Hands';
+import Sparkles from './Sparkles';
+import ConnectionIndicator, { type ConnectionStatus } from './ConnectionIndicator';
+import { Button } from './ui';
+import { QUICK_MESSAGES } from '../lib/types';
+
+export interface RoundResult {
+  myMove: Move;
+  rivalMove: Move;
+}
+
+export default function GameArena({
+  match,
+  meId,
+  meName,
+  opponentName,
+  connection,
+  spectator = false,
+  rivalSealed = false,
+  roundResult = null,
+  messages = [],
+  onMove,
+  onNextRound,
+  onRematch,
+  onLeave,
+  onSendMessage,
+}: {
+  match: Match;
+  meId: string;
+  meName: string;
+  opponentName: string;
+  connection: ConnectionStatus;
+  spectator?: boolean;
+  rivalSealed?: boolean;
+  roundResult?: RoundResult | null;
+  messages?: MatchMessage[];
+  onMove: (move: Move) => void;
+  onNextRound?: () => void;
+  onRematch: () => void;
+  onLeave: () => void;
+  onSendMessage?: (text: string) => void;
+}) {
+  const [phase, setPhase] = useState<'countdown' | 'play' | 'sealed' | 'revealed'>('countdown');
+  const [myMove, setMyMove] = useState<Move | null>(null);
+  const [announce, setAnnounce] = useState('');
+
+  const amPlayer1 = match.player1Id === meId;
+  const myScore = amPlayer1 ? match.score1 : match.score2;
+  const rivalScore = amPlayer1 ? match.score2 : match.score1;
+  const finished = match.status === 'FINISHED';
+  const iWon = finished && match.winnerId === meId;
+  const roundLabel =
+    match.format === 'FREE'
+      ? `Ronda ${match.currentRound}`
+      : `Ronda ${match.currentRound} de ${match.format === 'BEST_OF_1' ? 1 : match.format === 'BEST_OF_3' ? 3 : 5}`;
+
+  // Nueva ronda: vuelve la cuenta atrás.
+  useEffect(() => {
+    if (!finished) {
+      setPhase('countdown');
+      setMyMove(null);
+    }
+  }, [match.currentRound, finished]);
+
+  useEffect(() => {
+    if (roundResult) {
+      setPhase('revealed');
+      const phrase = roundPhrase(roundResult.myMove, roundResult.rivalMove);
+      setAnnounce(phrase);
+      playSound('win');
+      if (match.winnerId === meId) vibrateWin();
+      else if (match.winnerId) vibrateLose();
+    }
+  }, [roundResult, match.winnerId, meId]);
+
+  useEffect(() => {
+    if (!finished) return;
+    setAnnounce(iWon ? `¡Ganaste ${myScore} a ${rivalScore}!` : `Perdiste ${myScore} a ${rivalScore}.`);
+    if (iWon) {
+      playSound('win');
+      vibrateWin();
+    } else {
+      playSound('lose');
+      vibrateLose();
+    }
+  }, [finished, iWon, myScore, rivalScore]);
+
+  // Teclas 1/2/3 eligen piedra/papel/tijera (anunciado en pantalla).
+  useEffect(() => {
+    if (spectator || finished) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (phase !== 'play') return;
+      const idx = ['1', '2', '3'].indexOf(e.key);
+      if (idx >= 0) choose(MOVE_ORDER[idx]);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, spectator, finished]);
+
+  function choose(move: Move) {
+    if (phase !== 'play' || spectator) return;
+    setMyMove(move);
+    setPhase('sealed');
+    playSound('move');
+    onMove(move);
+  }
+
+  const showConfetti = finished && iWon && !getPrefs().disableConfetti;
+
+  return (
+    <section aria-label="Partida en vivo" className="relative flex flex-col gap-4 overflow-hidden rounded-panel">
+      {/* Brillo dorado, rayos de energía y destellos detrás de la arena (negro y oro). */}
+      <div aria-hidden="true" className="arena-glow pointer-events-none absolute inset-0" />
+      <div aria-hidden="true" className="energy-rays animate-rays-spin pointer-events-none absolute -inset-24 opacity-60" />
+      <Sparkles density="ambient" />
+      <div className="relative flex flex-col gap-4">
+      {showConfetti && <Confetti />}
+      <p aria-live="polite" className="sr-only">
+        {announce || `${roundLabel}. Vas ${myScore} a ${rivalScore}.`}
+      </p>
+
+      {/* Barra de partida */}
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-card border border-reto-gold/40 bg-reto-surface px-4 py-3">
+        <Button variant="secondary" onClick={onLeave}>
+          Salir
+        </Button>
+        {match.status === 'IN_PROGRESS' && (
+          <span className="animate-badge-pulse rounded-full bg-gradient-to-b from-reto-goldLight to-reto-gold px-2.5 py-1 text-[11px] font-bold text-[#1a1206]">
+            ● EN VIVO
+          </span>
+        )}
+        <span className="rounded-full bg-reto-elevated px-3 py-1 text-xs font-semibold text-reto-gold">
+          {FORMAT_LABELS[match.format]}
+        </span>
+        <span className="text-sm font-semibold">{roundLabel}</span>
+        <ConnectionIndicator status={connection} />
+      </div>
+
+      {spectator && (
+        <div role="note" className="rounded-card border border-reto-info/50 bg-reto-info/10 px-4 py-3 text-sm">
+          Estás viendo esta partida como espectador. No puedes jugar en ella.
+        </div>
+      )}
+      {connection !== 'connected' && !finished && (
+        <div role="alert" className="rounded-card border border-reto-warning/50 bg-reto-warning/10 px-4 py-3 text-sm">
+          Esperando conexión… La partida queda en pausa, no se declara ninguna derrota.
+        </div>
+      )}
+
+      {/* Marcador */}
+      <div className="flex items-center justify-between gap-3 rounded-panel border border-reto-gold/40 bg-reto-surface p-4 text-center">
+        <div className="flex-1">
+          <p className="truncate text-sm font-semibold">{spectator ? match.player1Username ?? 'Jugador 1' : meName}</p>
+          <p className="font-display text-3xl font-black text-reto-gold" aria-label={`Tu marcador: ${myScore}`}>
+            {amPlayer1 ? match.score1 : match.score2}
+          </p>
+        </div>
+        <span aria-hidden="true" className="font-display text-xl font-black text-white/40">VS</span>
+        <div className="flex-1">
+          <p className="truncate text-sm font-semibold">{spectator ? match.player2Username ?? 'Jugador 2' : opponentName}</p>
+          <p className="font-display text-3xl font-black text-reto-gold" aria-label={`Marcador del rival: ${rivalScore}`}>
+            {amPlayer1 ? match.score2 : match.score1}
+          </p>
+        </div>
+      </div>
+      <p className="text-center text-xs text-white/50">{totalRoundsLabel(match.format)}</p>
+
+      {/* Vídeo de manos reales: se sacude en la cuenta atrás y en la espera de jugada */}
+      {!finished && !roundResult && (
+        <div className="mx-auto w-full max-w-[420px]">
+          <ShakeVideo />
+        </div>
+      )}
+
+      {/* Cuenta atrás (con el vídeo de manos sacudiéndose encima) */}
+      {phase === 'countdown' && !finished && (
+        <div className="py-2">
+          <Countdown onDone={() => setPhase('play')} />
+        </div>
+      )}
+
+      {/* Zona del rival */}
+      <div className="rounded-card border border-reto-gold/40 bg-reto-surface p-4 text-center">
+        <h2 className="text-sm font-semibold text-white/70">{spectator ? match.player2Username ?? 'Rival' : opponentName}</h2>
+        <div className="mt-2 flex min-h-[90px] items-center justify-center">
+          {roundResult ? (
+            <div className="relative mx-auto w-full max-w-[280px]">
+              {winnerOf(roundResult.myMove, roundResult.rivalMove) === -1 && (
+                <div aria-hidden="true" className="energy-rays animate-rays-spin pointer-events-none absolute -inset-8 opacity-60" />
+              )}
+              <div
+                className={`relative ${winnerOf(roundResult.myMove, roundResult.rivalMove) === -1 ? 'rounded-xl ring-2 ring-reto-gold' : ''}`}
+              >
+                <RevealVideo move={roundResult.rivalMove} mirrored />
+              </div>
+              {winnerOf(roundResult.myMove, roundResult.rivalMove) === -1 && (
+                <p className="mt-2 text-sm font-bold text-reto-gold">Gana la ronda</p>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-white/60">
+              {rivalSealed ? 'Jugada sellada' : 'Esperando a tu rival…'}
+            </p>
+          )}
+        </div>
+        {rivalSealed && !roundResult && (
+          <p className="mt-1 flex items-center justify-center gap-1 text-sm font-semibold text-reto-warning">
+            <span aria-hidden="true">🔒</span> Jugada sellada
+          </p>
+        )}
+        {!rivalSealed && !roundResult && phase !== 'countdown' && (
+          <p className="mt-1 text-sm text-white/60">Esperando a tu rival…</p>
+        )}
+      </div>
+
+      {/* Zona propia */}
+      {!spectator && !finished && (
+        <div className="rounded-card border border-reto-gold/40 bg-reto-surface p-4 text-center">
+          <h2 className="text-sm font-semibold text-white/70">Tu jugada</h2>
+          {phase === 'sealed' || roundResult ? (
+            <div className="mt-2">
+              {myMove && roundResult ? (
+                <div className="relative mx-auto w-full max-w-[280px]">
+                  {winnerOf(roundResult.myMove, roundResult.rivalMove) === 1 && (
+                    <div aria-hidden="true" className="energy-rays animate-rays-spin pointer-events-none absolute -inset-8 opacity-60" />
+                  )}
+                  <div
+                    className={`relative ${winnerOf(roundResult.myMove, roundResult.rivalMove) === 1 ? 'rounded-xl ring-2 ring-reto-gold' : ''}`}
+                  >
+                    <RevealVideo move={myMove} />
+                  </div>
+                  {winnerOf(roundResult.myMove, roundResult.rivalMove) === 1 && (
+                    <p className="mt-2 text-sm font-bold text-reto-gold">Gana la ronda</p>
+                  )}
+                </div>
+              ) : (
+                myMove && <Hand move={myMove} size={84} />
+              )}
+              <p className="mt-2 text-sm font-semibold text-reto-gold">Tu jugada está sellada</p>
+            </div>
+          ) : (
+            <div className="mt-3 flex items-start justify-center gap-4" role="group" aria-label="Elige tu jugada">
+              {MOVE_ORDER.map((m, i) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => choose(m)}
+                  disabled={phase !== 'play'}
+                  aria-label={`${MOVE_LABELS[m]} (tecla ${i + 1})`}
+                  className="flex min-h-[72px] min-w-[72px] flex-col items-center gap-1 rounded-panel border border-white/15 bg-reto-elevated p-2 transition hover:border-reto-gold focus-visible:outline-2 focus-visible:outline-reto-gold disabled:opacity-60"
+                >
+                  <Hand move={m} size={64} />
+                  <span className="text-xs font-semibold">{MOVE_LABELS[m]}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <p className="mt-3 text-xs text-white/50">
+            Pulsa una mano o usa las teclas 1, 2 y 3 para piedra, papel y tijera.
+          </p>
+        </div>
+      )}
+
+      {/* Resultado de la ronda: rayos dorados al revelar la jugada */}
+      {roundResult && !finished && (
+        <div className="relative overflow-hidden rounded-card border border-reto-gold/40 bg-reto-gold/10 p-4 text-center" aria-live="polite">
+          <div aria-hidden="true" className="energy-rays animate-rays-spin pointer-events-none absolute -inset-24 opacity-50" />
+          <div className="relative">
+          <p className="font-display text-lg font-bold">{roundPhrase(roundResult.myMove, roundResult.rivalMove)}</p>
+          <p className="mt-1 text-sm text-white/70">
+            Marcador: {formatScore(myScore, rivalScore)}
+          </p>
+          {onNextRound && (
+            <Button className="mt-3" onClick={onNextRound}>
+              Siguiente ronda
+            </Button>
+          )}
+          </div>
+        </div>
+      )}
+
+      {/* Mensajes rápidos */}
+      {onSendMessage && !finished && (
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/50">Mensajes rápidos</p>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Mensajes rápidos">
+            {QUICK_MESSAGES.map((msg) => (
+              <button
+                key={msg}
+                type="button"
+                onClick={() => onSendMessage(msg)}
+                className="min-h-[44px] rounded-full border border-white/15 bg-reto-elevated px-3 py-1.5 text-sm hover:border-reto-gold"
+              >
+                {msg}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Burbujas de mensajes */}
+      {messages.length > 0 && (
+        <ul aria-live="polite" className="flex flex-col gap-2">
+          {messages.slice(-5).map((m) => (
+            <li
+              key={m.id}
+              className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm ${
+                m.playerId === meId ? 'self-end bg-reto-gold/40' : 'self-start bg-reto-elevated'
+              }`}
+            >
+              <strong className="mr-1 text-xs text-white/60">{m.playerName}:</strong>
+              {m.text}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <p className="text-center text-xs text-white/50">
+        Ninguno ve la jugada del otro hasta que los dos han elegido.
+      </p>
+
+      {/* Final de la partida */}
+      {finished && (
+        <div className="relative overflow-hidden rounded-card border border-reto-gold/40 bg-reto-surface p-5 text-center" aria-live="assertive">
+          {/* Vídeo de celebración como fondo + destellos dorados densos */}
+          <div aria-hidden="true" className="absolute inset-0 opacity-40">
+            <CelebrationVideo className="h-full w-full rounded-none border-0 object-cover" />
+          </div>
+          <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/60" />
+          <Sparkles density="dense" />
+          <div aria-hidden="true" className="energy-rays animate-rays-spin pointer-events-none absolute -inset-24 opacity-50" />
+          <div className="relative">
+          <h2 className="gold-text font-display text-2xl font-black">
+            {iWon ? `¡Ganaste ${formatScore(myScore, rivalScore)}!` : `Perdiste ${formatScore(myScore, rivalScore)}`}
+          </h2>
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
+            <Button onClick={onRematch}>Revancha</Button>
+            <Link href="/retos">
+              <Button variant="secondary">Volver a retos</Button>
+            </Link>
+          </div>
+          </div>
+        </div>
+      )}
+      </div>
+    </section>
+  );
+}
