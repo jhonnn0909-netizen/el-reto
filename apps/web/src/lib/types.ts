@@ -86,6 +86,12 @@ export interface Match {
   startedAt?: string | null;
   finishedAt?: string | null;
   createdAt: string;
+  /** Reto diario (el creador es el usuario de sistema). */
+  isDaily?: boolean;
+  /** La partida espera a un rival real: el rival provisional es el
+   * usuario de sistema, que nunca juega. Mientras sea true no se
+   * pueden enviar jugadas. */
+  waitingForRealOpponent?: boolean;
 }
 
 export interface RankingEntry {

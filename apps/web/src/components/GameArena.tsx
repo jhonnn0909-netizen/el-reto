@@ -41,6 +41,11 @@ export default function GameArena({
   onLeave,
   onSendMessage,
   everConnected = true,
+  /** La partida espera a un rival real (reto diario): el rival
+   * provisional es el usuario de sistema, que nunca juega. */
+  waitingForRealOpponent = false,
+  /** La última ronda se resolvió por tiempo (un lado no jugó). */
+  roundTimeout = null,
 }: {
   match: Match;
   meId: string;
@@ -51,7 +56,11 @@ export default function GameArena({
   rivalSealed?: boolean;
   roundResult?: RoundResult | null;
   messages?: MatchMessage[];
-  onMove: (move: Move) => void;
+  /** Envía la jugada y devuelve true solo si el servidor la aceptó.
+   * La arena NO marca la jugada como sellada antes de esa
+   * confirmación: antes se sellaba optimistamente al pulsar y, si el
+   * envío fallaba, los botones quedaban escondidos sin reintento. */
+  onMove: (move: Move) => Promise<boolean>;
   onNextRound?: () => void;
   onRematch: () => void;
   onLeave: () => void;
@@ -62,9 +71,12 @@ export default function GameArena({
    * conexión que ya existía.
    */
   everConnected?: boolean;
+  waitingForRealOpponent?: boolean;
+  roundTimeout?: { winnerIsMe: boolean; winnerName: string } | null;
 }) {
   const [phase, setPhase] = useState<'countdown' | 'play' | 'sealed' | 'revealed'>('countdown');
   const [myMove, setMyMove] = useState<Move | null>(null);
+  const [sending, setSending] = useState(false);
   const [announce, setAnnounce] = useState('');
 
   const amPlayer1 = match.player1Id === meId;
@@ -129,15 +141,19 @@ export default function GameArena({
 
   useEffect(() => {
     if (!finished) return;
+    // Empate (sin ganador): ni «Ganaste» ni «Perdiste» — antes el
+    // jugador que no ganó leía «Perdiste 0 a 0» y la tarjeta del
+    // ganador decía a la vez «¡X ganó la partida!», aunque otra parte
+    // de la página decía «Empate». Un empate solo muestra empate.
+    if (!match.winnerId) {
+      setAnnounce('La partida terminó en empate.');
+      return;
+    }
     // Espectador: texto neutro con el ganador. Antes decía «Perdiste»
     // a quien ni siquiera había jugado (iWon era false para todo el
     // que no fuera el ganador).
     if (spectator) {
-      setAnnounce(
-        match.winnerId
-          ? `Ganó ${winnerName} ${formatScore(match.score1, match.score2)}.`
-          : 'La partida terminó en empate.',
-      );
+      setAnnounce(`Ganó ${winnerName} ${formatScore(match.score1, match.score2)}.`);
       return;
     }
     setAnnounce(iWon ? `¡Ganaste ${myScore} a ${rivalScore}!` : `Perdiste ${myScore} a ${rivalScore}.`);
@@ -152,23 +168,30 @@ export default function GameArena({
 
   // Teclas 1/2/3 eligen piedra/papel/tijera (anunciado en pantalla).
   useEffect(() => {
-    if (spectator || finished || cancelled) return;
+    if (spectator || finished || cancelled || waitingForRealOpponent) return;
     const onKey = (e: KeyboardEvent) => {
-      if (phase !== 'play') return;
+      if (phase !== 'play' || sending) return;
       const idx = ['1', '2', '3'].indexOf(e.key);
-      if (idx >= 0) choose(MOVE_ORDER[idx]);
+      if (idx >= 0) void choose(MOVE_ORDER[idx]);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, spectator, finished]);
+  }, [phase, spectator, finished, waitingForRealOpponent, sending]);
 
-  function choose(move: Move) {
-    if (phase !== 'play' || spectator) return;
-    setMyMove(move);
-    setPhase('sealed');
+  /** Solo se marca la jugada como sellada cuando el servidor la
+   * acepta (onMove devuelve true). Si el envío falla, los botones
+   * siguen disponibles para reintentar. */
+  async function choose(move: Move) {
+    if (phase !== 'play' || spectator || sending || waitingForRealOpponent) return;
+    setSending(true);
     playSound('move');
-    onMove(move);
+    const ok = await onMove(move);
+    setSending(false);
+    if (ok) {
+      setMyMove(move);
+      setPhase('sealed');
+    }
   }
 
   const showConfetti = finished && iWon && !getPrefs().disableConfetti;
@@ -208,6 +231,14 @@ export default function GameArena({
       {spectator && (
         <div role="note" className="rounded-card border border-reto-info/50 bg-reto-info/10 px-4 py-3 text-sm">
           Estás viendo esta partida como espectador. No puedes jugar en ella.
+        </div>
+      )}
+      {waitingForRealOpponent && !finished && !cancelled && (
+        <div role="status" className="rounded-card border border-reto-warning/50 bg-reto-warning/10 px-4 py-3 text-sm">
+          <p className="font-semibold">Esperando a un rival real.</p>
+          <p className="mt-1 text-white/70">
+            El reto diario espera a que otra persona se una. En cuanto alguien acepte, podrás jugar.
+          </p>
         </div>
       )}
       {cancelled && (
@@ -284,7 +315,12 @@ export default function GameArena({
               )}
             </div>
           ) : finished ? (
-            <p className="text-sm text-white/60">Partida terminada.</p>
+            // Empate visible también aquí: antes decía «Partida
+            // terminada.» y el título «Empate» quedaba solo en la
+            // tarjeta final.
+            <p className="text-sm text-white/60">
+              {!match.winnerId ? 'La partida terminó en empate.' : 'Partida terminada.'}
+            </p>
           ) : cancelled ? (
             <p className="text-sm text-white/60">Partida cancelada.</p>
           ) : (
@@ -300,7 +336,9 @@ export default function GameArena({
         )}
         {/* «Esperando a tu rival…» nunca en una partida terminada ni cancelada. */}
         {!finished && !cancelled && !rivalSealed && !roundResult && phase !== 'countdown' && (
-          <p className="mt-1 text-sm text-white/60">Esperando a tu rival…</p>
+          <p className="mt-1 text-sm text-white/60">
+            {waitingForRealOpponent ? 'Esperando a un rival real…' : 'Esperando a tu rival…'}
+          </p>
         )}
       </div>
 
@@ -335,8 +373,8 @@ export default function GameArena({
                 <button
                   key={m}
                   type="button"
-                  onClick={() => choose(m)}
-                  disabled={phase !== 'play'}
+                  onClick={() => void choose(m)}
+                  disabled={phase !== 'play' || sending || waitingForRealOpponent}
                   aria-label={`${MOVE_LABELS[m]} (tecla ${i + 1})`}
                   className="flex min-h-[72px] min-w-[72px] flex-col items-center gap-1 rounded-panel border border-white/15 bg-reto-elevated p-2 transition hover:border-reto-gold focus-visible:outline-2 focus-visible:outline-reto-gold disabled:opacity-60"
                 >
@@ -345,6 +383,9 @@ export default function GameArena({
                 </button>
               ))}
             </div>
+          )}
+          {sending && (
+            <p className="mt-2 text-sm text-white/70" role="status">Enviando tu jugada…</p>
           )}
           <p className="mt-3 text-xs text-white/50">
             Pulsa una mano o usa las teclas 1, 2 y 3 para piedra, papel y tijera.
@@ -368,6 +409,15 @@ export default function GameArena({
                 )
               : roundPhrase(roundResult.myMove, roundResult.rivalMove)}
           </p>
+          {roundTimeout && (
+            <p className="mt-1 text-sm font-semibold text-reto-warning">
+              {spectator
+                ? `La ronda se resolvió por tiempo: ganó ${roundTimeout.winnerName}.`
+                : roundTimeout.winnerIsMe
+                  ? 'Tu rival no jugó a tiempo: ganas la ronda.'
+                  : 'No jugaste a tiempo: pierdes la ronda.'}
+            </p>
+          )}
           <p className="mt-1 text-sm text-white/70">
             Marcador: {formatScore(leftScore, rightScore)}
           </p>
@@ -377,6 +427,29 @@ export default function GameArena({
             </Button>
           )}
           </div>
+        </div>
+      )}
+
+      {/* Ronda resuelta por tiempo (un solo jugador jugó): no hay dos
+        jugadas que revelar, así que no hay tarjeta de resultado de
+        ronda; se muestra el motivo directamente. */}
+      {roundTimeout && !roundResult && !finished && !cancelled && (
+        <div className="rounded-card border border-reto-warning/50 bg-reto-warning/10 p-4 text-center" aria-live="polite">
+          <p className="font-display text-lg font-bold">
+            {spectator
+              ? `La ronda se resolvió por tiempo: ganó ${roundTimeout.winnerName}.`
+              : roundTimeout.winnerIsMe
+                ? 'Tu rival no jugó a tiempo: ganas la ronda.'
+                : 'No jugaste a tiempo: pierdes la ronda.'}
+          </p>
+          <p className="mt-1 text-sm text-white/70">
+            Marcador: {formatScore(leftScore, rightScore)}
+          </p>
+          {onNextRound && (
+            <Button className="mt-3" onClick={onNextRound}>
+              Siguiente ronda
+            </Button>
+          )}
         </div>
       )}
 
@@ -434,13 +507,13 @@ export default function GameArena({
           <div aria-hidden="true" className="energy-rays animate-rays-spin pointer-events-none absolute -inset-24 opacity-50" />
           <div className="relative">
           <h2 className="gold-text font-display text-2xl font-black">
-            {spectator
-              ? match.winnerId
+            {!match.winnerId
+              ? 'Empate'
+              : spectator
                 ? `Ganó ${winnerName} ${formatScore(match.score1, match.score2)}`
-                : 'Empate'
-              : iWon
-                ? `¡Ganaste ${formatScore(myScore, rivalScore)}!`
-                : `Perdiste ${formatScore(myScore, rivalScore)}`}
+                : iWon
+                  ? `¡Ganaste ${formatScore(myScore, rivalScore)}!`
+                  : `Perdiste ${formatScore(myScore, rivalScore)}`}
           </h2>
           <div className="mt-4 flex flex-wrap justify-center gap-2">
             <Button onClick={onRematch}>Revancha</Button>

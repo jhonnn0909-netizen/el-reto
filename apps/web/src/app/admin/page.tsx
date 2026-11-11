@@ -38,7 +38,12 @@ export default function AdminPage() {
                 : 'Inicia sesión para ver la administración.'}
           </p>
           <p className="mt-1 text-xs text-white/60">{stats.error}</p>
-          <Button variant="secondary" className="mt-3" onClick={stats.reload}>Reintentar</Button>
+          {/* Sin «Reintentar» en errores de permiso (403): reintentar
+            no cambia el permiso y el botón es inútil. Solo para
+            errores transitorios (red, 5xx). */}
+          {stats.errorStatus !== 403 && (
+            <Button variant="secondary" className="mt-3" onClick={stats.reload}>Reintentar</Button>
+          )}
         </div>
       </div>
     );

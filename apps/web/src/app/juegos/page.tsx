@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { gameApi } from '../../lib/auth';
 import { asList, useApiData } from '../../lib/useApi';
+import { usePresence } from '../../lib/usePresence';
 import { getStoredUser } from '../../lib/session';
 import { FORMAT_LABELS } from '../../lib/game';
 import type { Challenge, DailyChallenge, Game, OnlinePerson, User } from '../../lib/types';
@@ -45,11 +46,7 @@ export default function GamesPage() {
     useCallback(async () => asList(await gameApi.listChallenges({ limit: 6 })), []),
     'games-challenges',
   );
-  const presence = useApiData<OnlinePerson[]>(
-    useCallback(async () => gameApi.presence(), []),
-    'games-presence',
-    20000,
-  );
+  const presence = usePresence('games-presence');
 
   async function playDaily() {
     if (!daily) return;

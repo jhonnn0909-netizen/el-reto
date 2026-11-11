@@ -862,12 +862,16 @@ describe('GameService', () => {
     // Primera aceptación: Ana queda como retadora, en espera de rival.
     const waiting = await service.acceptChallenge(ana, daily.id);
     expect((waiting.players[1] as any).displayName).toBe('Esperando rival');
+    // Mientras el rival es el usuario del sistema, la web muestra
+    // «Esperando a un rival real» y no deja enviar jugadas.
+    expect((waiting as any).waitingForRealOpponent).toBe(true);
     // Ana no puede jugar hasta que llegue el rival.
     await expect(
       service.commitMove(ana, waiting.id as string, 1, computeCommitHash('ROCK', 's')),
     ).rejects.toThrow('MATCH_WAITING_OPPONENT');
     // Segunda aceptación: Bruno completa la partida.
     const state = await service.acceptChallenge(bruno, daily.id);
+    expect((state as any).waitingForRealOpponent).toBe(false);
     expect(state.players.map((p: any) => p.id)).toEqual(['u1', 'u2']);
     // Ana gana todas las rondas hasta cerrar la partida (el formato del
     // día puede ser BEST_OF_1/3/5: se juega hasta FINISHED).

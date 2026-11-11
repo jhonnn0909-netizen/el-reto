@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { gameApi } from '../lib/auth';
 import { asList, useApiData } from '../lib/useApi';
+import { usePresence } from '../lib/usePresence';
 import { getStoredUser } from '../lib/session';
 import { FORMAT_LABELS } from '../lib/game';
 import type { Challenge, DailyChallenge, OnlinePerson, User } from '../lib/types';
@@ -42,11 +43,7 @@ export default function HomePage() {
     }, []),
     'home-challenges',
   );
-  const presence = useApiData<OnlinePerson[]>(
-    useCallback(async () => gameApi.presence(), []),
-    'home-presence',
-    20000,
-  );
+  const presence = usePresence('home-presence');
 
   // Recarga inmediata tras cada latido de presencia (OnlinePanel
   // avisa con 'elreto:presence'): el panel refleja el estado actual

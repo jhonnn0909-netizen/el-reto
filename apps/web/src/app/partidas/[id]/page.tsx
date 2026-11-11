@@ -8,9 +8,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { gameApi } from '../../../lib/auth';
-import { apiErrorMessage } from '../../../lib/useApi';
+import { apiErrorMessage, gameErrorMessage } from '../../../lib/useApi';
 import { getAccessToken } from '../../../lib/api';
 import { disconnectGameSocket, getGameSocket } from '../../../lib/ws';
+import { getCachedPresence, setCachedPresence, asPresenceList } from '../../../lib/presence-cache';
 import { clearStoredUser, getStoredUser, isGuestUser } from '../../../lib/session';
 import { commitHash, randomSecret } from '../../../lib/game';
 import { FORMAT_LABELS } from '../../../lib/game';
@@ -32,15 +33,32 @@ export default function MatchPage() {
   const [match, setMatch] = useState<Match | null>(null);
   const [status, setStatus] = useState<'loading' | 'error' | 'ok'>('loading');
   const [error, setError] = useState<string | null>(null);
+  const [errorStatus, setErrorStatus] = useState<number | null>(null);
   const [connection, setConnection] = useState<ConnectionStatus>('reconnecting');
   const [everConnected, setEverConnected] = useState(false);
   const [rivalSealed, setRivalSealed] = useState(false);
   const [roundResult, setRoundResult] = useState<RoundResult | null>(null);
+  /** Última ronda resuelta por tiempo (un lado no jugó). */
+  const [roundTimeout, setRoundTimeout] = useState<{ winnerIsMe: boolean; winnerName: string } | null>(null);
+  /** Espejo del anterior para leerlo dentro de match:finished (los
+   * actualizadores de estado deben ser puros, sin efectos dentro). */
+  const roundTimeoutRef = useRef<{ winnerIsMe: boolean; winnerName: string } | null>(null);
+  /** Motivo de cierre de la partida (evento match:finished). */
+  const [finishReason, setFinishReason] = useState<string | null>(null);
+  /** La ronda decisiva se resolvió por tiempo. */
+  const [finishTimeout, setFinishTimeout] = useState(false);
   const [messages, setMessages] = useState<MatchMessage[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [dismissedInvite, setDismissedInvite] = useState(false);
-  const [presence, setPresence] = useState<OnlinePerson[]>([]);
+  const [presence, setPresence] = useState<OnlinePerson[]>(() => getCachedPresence() ?? []);
+  // Normaliza la respuesta de presencia: solo una lista válida llega
+  // al panel y a la caché (un objeto rompería `people.map`).
+  function applyPresence(list: unknown) {
+    const safe = asPresenceList(list);
+    setCachedPresence(safe);
+    setPresence(safe);
+  }
   const secretRef = useRef<string>(randomSecret());
   const socketRef = useRef<ReturnType<typeof getGameSocket> | null>(null);
 
@@ -64,6 +82,7 @@ export default function MatchPage() {
         setUser(null);
       }
       setError(apiErrorMessage(err));
+      setErrorStatus((err as { status?: number })?.status ?? null);
       setStatus('error');
       return null;
     }
@@ -81,7 +100,14 @@ export default function MatchPage() {
       return;
     }
     void load();
-    gameApi.presence().then(setPresence).catch(() => setPresence([]));
+    // La lista de presencia arranca con la última conocida (caché del
+    // módulo) y se refresca en el acto: antes, al entrar, el panel
+    // mostraba (0) o «Cargando…» varios segundos aunque hubiera gente
+    // en línea.
+    gameApi
+      .presence()
+      .then(applyPresence)
+      .catch(() => undefined);
   }, [load]);
 
   // La lista de personas en línea se refresca cada 20 s (igual que el
@@ -89,7 +115,10 @@ export default function MatchPage() {
   useEffect(() => {
     if (!user) return;
     const timer = setInterval(() => {
-      gameApi.presence().then(setPresence).catch(() => undefined);
+      gameApi
+        .presence()
+        .then(applyPresence)
+        .catch(() => undefined);
     }, 20000);
     return () => clearInterval(timer);
   }, [user]);
@@ -98,7 +127,10 @@ export default function MatchPage() {
   // avisa con 'elreto:presence').
   useEffect(() => {
     const refresh = () => {
-      gameApi.presence().then(setPresence).catch(() => undefined);
+      gameApi
+        .presence()
+        .then(applyPresence)
+        .catch(() => undefined);
     };
     window.addEventListener('elreto:presence', refresh);
     return () => window.removeEventListener('elreto:presence', refresh);
@@ -153,7 +185,7 @@ export default function MatchPage() {
         // payload.moves[user.id] y payload.score.score1, ambos undefined:
         // el resultado de la ronda nunca se mostraba y el marcador
         // quedaba en "NaN a NaN".
-        socket.on('round:result', (payload: { moves: { player1: Move | null; player2: Move | null }; result: string; score: { player1: number; player2: number } }) => {
+        socket.on('round:result', (payload: { moves: { player1: Move | null; player2: Move | null }; result: string; score: { player1: number; player2: number }; reason?: string }) => {
           // Defensa: el temporizador puede resolver una ronda con una
           // sola jugada (la otra es null) y un payload sin `score` o
           // sin `moves` rompería el render al leer
@@ -172,6 +204,26 @@ export default function MatchPage() {
           const amPlayer1 = match.player1Id === user.id;
           const myMove = isSpectator || amPlayer1 ? payload.moves.player1 : payload.moves.player2;
           const rivalMove = isSpectator || amPlayer1 ? payload.moves.player2 : payload.moves.player1;
+          // Ronda resuelta por tiempo (doc 07 §11.3): un lado no jugó
+          // y pierde la ronda. Se guarda el motivo para mostrarlo
+          // («Tu rival no jugó a tiempo») en vez de una victoria sin
+          // explicación; con una sola jugada no hay tarjeta de
+          // resultado de ronda y el aviso vive en roundTimeout.
+          if (payload.reason === 'TIMEOUT') {
+            const winnerIsP1 = payload.result === 'PLAYER1';
+            const winnerName = winnerIsP1
+              ? match.player1Username ?? 'Jugador 1'
+              : match.player2Username ?? 'Jugador 2';
+            const timeout = {
+              winnerIsMe: !isSpectator && winnerIsP1 === amPlayer1,
+              winnerName,
+            };
+            roundTimeoutRef.current = timeout;
+            setRoundTimeout(timeout);
+          } else {
+            roundTimeoutRef.current = null;
+            setRoundTimeout(null);
+          }
           if (myMove && rivalMove) {
             setRoundResult({ myMove, rivalMove });
             setRivalSealed(false);
@@ -180,8 +232,13 @@ export default function MatchPage() {
             setMatch((prev) => (prev ? { ...prev, score1: payload.score.player1, score2: payload.score.player2 } : prev));
           }
         });
-        socket.on('match:finished', (payload: { winnerId: string; score: { player1: number; player2: number } }) => {
+        socket.on('match:finished', (payload: { winnerId: string; score: { player1: number; player2: number }; reason?: string }) => {
           if (!payload || typeof payload !== 'object') return;
+          setFinishReason(payload.reason ?? null);
+          // Si la ronda decisiva se resolvió por tiempo, el motivo se
+          // conserva para la tarjeta final («Tu rival no jugó a
+          // tiempo en la ronda decisiva»).
+          setFinishTimeout(roundTimeoutRef.current !== null);
           setMatch((prev) =>
             prev
               ? {
@@ -206,7 +263,11 @@ export default function MatchPage() {
           // estado fresco y los botones quedan desactivados (GameArena).
           void payload;
           setMatch((prev) => (prev ? { ...prev, status: 'CANCELLED' } : prev));
-          setToast('La partida fue cancelada: se acabó el tiempo sin jugadas. Puedes crear un reto nuevo.');
+          setToast(
+            payload?.reason === 'FORFEIT'
+              ? 'La partida fue cancelada: tu rival abandonó.'
+              : 'La partida fue cancelada: se acabó el tiempo sin jugadas. Puedes crear un reto nuevo.',
+          );
           void load();
         });
       }
@@ -236,29 +297,55 @@ export default function MatchPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [match?.id, user?.id, connection === 'offline']);
 
-  async function chooseMove(move: Move) {
-    if (!match || !user) return;
+  /**
+   * Envía la jugada (commit-reveal por REST) y devuelve true solo si
+   * el servidor la aceptó. La arena solo marca la jugada como sellada
+   * con true: antes se sellaba optimistamente al pulsar y, si el
+   * envío fallaba (p. ej. MATCH_WAITING_OPPONENT en el reto diario),
+   * los botones quedaban escondidos sin reintento y el aviso era un
+   * error genérico de conexión. Ahora el aviso trae el motivo real
+   * del servidor y los botones siguen disponibles.
+   *
+   * REST es la única vía de envío: antes se reenviaba la misma jugada
+   * por WebSocket (match:commit / match:reveal) y el gateway volvía a
+   * ejecutar el commit (ALREADY_COMMITTED) — ruido y carreras entre
+   * ambas vías. El servidor ya difunde los eventos a la sala.
+   */
+  async function chooseMove(move: Move): Promise<boolean> {
+    if (!match || !user) return false;
     // Sin jugadas posibles en partidas cerradas: el botón ya está
     // desactivado (GameArena), pero un doble toque o una tecla 1/2/3
     // no debe intentar el commit (antes fallaba con el error genérico
     // de conexión aunque la causa era la cancelación por tiempo).
     if (match.status === 'CANCELLED') {
       setToast('Esta partida fue cancelada. Crea un reto nuevo para jugar.');
-      return;
+      return false;
     }
-    if (match.status === 'FINISHED') return;
+    if (match.status === 'FINISHED') return false;
+    if (match.waitingForRealOpponent) {
+      setToast('Esperando a un rival real. En cuanto alguien se una al reto diario, podrás jugar.');
+      return false;
+    }
     const secret = secretRef.current;
     try {
       const hash = await commitHash(move, secret);
       await gameApi.commit(match.id, match.currentRound, hash);
-      socketRef.current?.emit('match:commit', { matchId: match.id, round: match.currentRound, commitHash: hash });
       await gameApi.reveal(match.id, match.currentRound, move, secret);
-      socketRef.current?.emit('match:reveal', { matchId: match.id, round: match.currentRound, move, secret });
       secretRef.current = randomSecret();
+    } catch (err) {
+      setToast(gameErrorMessage(err));
+      return false;
+    }
+    // La recarga del estado no puede fallar la jugada: si falla, el
+    // estado llega igual por WebSocket (match:state). Antes un fallo
+    // aquí mostraba «No pudimos enviar tu jugada» aunque la jugada
+    // ya estaba registrada.
+    try {
       await load();
     } catch {
-      setToast('No pudimos enviar tu jugada. Revisa tu conexión e inténtalo de nuevo.');
+      // Se ignora: el estado se refresca por WebSocket.
     }
+    return true;
   }
 
   function sendMessage(text: string) {
@@ -312,7 +399,9 @@ export default function MatchPage() {
               </>
             ) : (
               <>
-                <Button variant="secondary" onClick={() => void load()}>Reintentar</Button>
+                {errorStatus !== 403 && (
+                  <Button variant="secondary" onClick={() => void load()}>Reintentar</Button>
+                )}
                 <Link href="/retos"><Button variant="secondary">Ver retos</Button></Link>
               </>
             )}
@@ -348,13 +437,33 @@ export default function MatchPage() {
 
   const spectator = match.player1Id !== user.id && match.player2Id !== user.id;
   const opponentId = match.player1Id === user.id ? match.player2Id : match.player1Id;
-  const opponentName = spectator
-    ? 'Rival'
-    : match.player1Id === user.id
-      ? match.player2Username ?? 'Rival'
-      : match.player1Username ?? 'Rival';
+  const waitingForRealOpponent = match.waitingForRealOpponent ?? false;
+  const opponentName = waitingForRealOpponent
+    ? 'Esperando rival'
+    : spectator
+      ? 'Rival'
+      : match.player1Id === user.id
+        ? match.player2Username ?? 'Rival'
+        : match.player1Username ?? 'Rival';
   const finished = match.status === 'FINISHED';
   const guest = isGuestUser(user);
+  const isDraw = finished && !match.winnerId;
+  /** Nota del motivo de cierre para la tarjeta final (doc 07 §11.3:
+   * la ausencia de jugada es derrota en la ronda; el abandono, del
+   * jugador que se va). */
+  const finishNote = !finished
+    ? undefined
+    : finishReason === 'FORFEIT'
+      ? match.winnerId === user.id
+        ? 'Victoria por abandono: tu rival abandonó la partida.'
+        : 'Derrota por abandono.'
+      : finishReason === 'TIMEOUT_DRAW'
+        ? 'Empate por tiempo: nadie jugó a tiempo.'
+        : finishTimeout
+          ? match.winnerId === user.id
+            ? 'Tu rival no jugó a tiempo en la ronda decisiva.'
+            : 'No jugaste a tiempo en la ronda decisiva.'
+          : undefined;
 
   return (
     // Organización v7 (APROBADA): contenido centrado (máx. 1.080 px,
@@ -378,25 +487,33 @@ export default function MatchPage() {
         onMove={chooseMove}
         onNextRound={() => {
           setRoundResult(null);
+          setRoundTimeout(null);
+          roundTimeoutRef.current = null;
           setRivalSealed(false);
           void load();
         }}
         onRematch={rematch}
         onLeave={leave}
         onSendMessage={spectator ? undefined : sendMessage}
+        waitingForRealOpponent={waitingForRealOpponent}
+        roundTimeout={roundTimeout}
       />
 
       {finished && (
         <WinnerCard
           winnerName={
-            match.winnerId === match.player1Id
+            isDraw
               ? match.player1Username ?? 'Jugador 1'
-              : match.player2Username ?? 'Jugador 2'
+              : match.winnerId === match.player1Id
+                ? match.player1Username ?? 'Jugador 1'
+                : match.player2Username ?? 'Jugador 2'
           }
           loserName={
-            match.winnerId === match.player1Id
+            isDraw
               ? match.player2Username ?? 'Jugador 2'
-              : match.player1Username ?? 'Jugador 1'
+              : match.winnerId === match.player1Id
+                ? match.player2Username ?? 'Jugador 2'
+                : match.player1Username ?? 'Jugador 1'
           }
           scoreWinner={Math.max(match.score1, match.score2)}
           scoreLoser={Math.min(match.score1, match.score2)}
@@ -404,6 +521,8 @@ export default function MatchPage() {
           matchId={match.id}
           finishedAt={match.finishedAt ?? new Date().toISOString()}
           isWinner={match.winnerId === user.id}
+          isDraw={isDraw}
+          finishNote={finishNote}
         />
       )}
 

@@ -72,7 +72,7 @@ export default function OnlineList({
         </div>
       )}
 
-      {loading ? (
+      {loading && people.length === 0 ? (
         <p role="status" className="mt-3 text-sm text-white/60">
           Cargando personas en línea…
         </p>

@@ -1285,6 +1285,16 @@ export class GameService implements OnModuleInit, OnModuleDestroy {
       finishedAt: match.finished_at,
       timeoutSeconds: this.moveTimeoutSeconds,
       isDaily: !!challenge && !!systemId && challenge.creator_id === systemId,
+      // Reto diario en espera de rival real: el rival provisional es
+      // el usuario de sistema, que nunca juega. La página debe
+      // mostrar «Esperando a un rival real» y NO dejar enviar jugadas
+      // mientras sea así (el commit se rechaza con
+      // MATCH_WAITING_OPPONENT y la página lo convertía en error
+      // genérico marcando la jugada como sellada).
+      waitingForRealOpponent:
+        match.status === 'WAITING' &&
+        !!systemId &&
+        (match.player1_id === systemId || match.player2_id === systemId),
       asSpectator: perspectiveUserId === null,
       round: current
         ? {

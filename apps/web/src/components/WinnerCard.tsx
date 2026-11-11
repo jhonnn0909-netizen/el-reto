@@ -19,6 +19,13 @@ export default function WinnerCard({
   matchId,
   finishedAt,
   isWinner,
+  /** Empate (sin ganador): no hay trofeo ni «¡X ganó!» — solo el
+   * empate. Antes la página pasaba al jugador 2 como ganador cuando
+   * winnerId era null y la tarjeta contradecía el empate. */
+  isDraw = false,
+  /** Nota del motivo de cierre (abandono, tiempo): se muestra bajo
+   * el titular cuando la partida terminó por esa causa. */
+  finishNote,
 }: {
   winnerName: string;
   loserName: string;
@@ -29,12 +36,16 @@ export default function WinnerCard({
   finishedAt: string;
   /** Si el usuario actual es el ganador (para el titular). */
   isWinner: boolean;
+  isDraw?: boolean;
+  finishNote?: string;
 }) {
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://elreto.app';
   const url = `${origin}/partidas/${matchId}`;
-  const text = isWinner
-    ? `¡Gané ${formatScore(scoreWinner, scoreLoser)} a ${loserName} en El Reto! ¿Aceptas el reto?`
-    : `${winnerName} ganó ${formatScore(scoreWinner, scoreLoser)} a ${loserName} en El Reto. ¿Aceptas el reto?`;
+  const text = isDraw
+    ? `Empatamos ${formatScore(scoreWinner, scoreLoser)} con ${loserName} en El Reto. ¿Aceptas el reto?`
+    : isWinner
+      ? `¡Gané ${formatScore(scoreWinner, scoreLoser)} a ${loserName} en El Reto! ¿Aceptas el reto?`
+      : `${winnerName} ganó ${formatScore(scoreWinner, scoreLoser)} a ${loserName} en El Reto. ¿Aceptas el reto?`;
 
   return (
     <article
@@ -53,12 +64,17 @@ export default function WinnerCard({
       <div className="flex justify-center">
         <Logo size={64} animated={false} />
       </div>
-      <div className="mt-4">
-        <TrophyPhoto caption="El trofeo del ganador" />
-      </div>
+      {!isDraw && (
+        <div className="mt-4">
+          <TrophyPhoto caption="El trofeo del ganador" />
+        </div>
+      )}
       <h2 className="gold-text mt-4 font-display text-2xl font-black">
-        {isWinner ? '¡Ganaste la partida!' : `¡${winnerName} ganó la partida!`}
+        {isDraw ? 'Empate' : isWinner ? '¡Ganaste la partida!' : `¡${winnerName} ganó la partida!`}
       </h2>
+      {finishNote && (
+        <p className="mt-1 text-sm font-semibold text-reto-warning">{finishNote}</p>
+      )}
       <p className="mt-1 text-sm text-white/60">
         {winnerName} contra {loserName} · {formatLabel}
       </p>

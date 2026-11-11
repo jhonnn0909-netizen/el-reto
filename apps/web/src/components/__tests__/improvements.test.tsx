@@ -1,7 +1,7 @@
 // Pruebas de la ampliación de alcance: WinnerCard, sonidos/vibración
 // por defecto, modo espectador, tarjetas «Próximamente», rachas y niveles.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import WinnerCard from '../WinnerCard';
 import { GameCard, FALLBACK_GAMES } from '../GameCard';
 import RankingTable from '../RankingTable';
@@ -272,5 +272,120 @@ describe('Ranking con rachas y niveles', () => {
     expect(screen.getAllByText(/Mejor racha/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Nv\. 4/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Retador/).length).toBeGreaterThan(0);
+  });
+});
+
+describe('Ronda 4: reto diario, empate y tiempo agotado', () => {
+  const arenaProps = {
+    match,
+    meId: 'u1',
+    meName: 'Jhon',
+    opponentName: 'Alcon',
+    connection: 'connected' as const,
+    onRematch: vi.fn(),
+    onLeave: vi.fn(),
+  };
+
+  it('la jugada solo se sella cuando el envío tiene éxito', async () => {
+    const onMove = vi.fn().mockResolvedValue(true);
+    render(<GameArena {...arenaProps} onMove={onMove} />);
+    // La arena arranca con la cuenta atrás (~1,8 s): hay que esperar
+    // a que los botones se activen antes de pulsar.
+    const rock = screen.getByRole('button', { name: /Piedra/ });
+    await waitFor(() => expect(rock).toBeEnabled(), { timeout: 3000 });
+    fireEvent.click(rock);
+    await waitFor(() => expect(screen.getByText(/Tu jugada está sellada/)).toBeInTheDocument());
+    expect(onMove).toHaveBeenCalledWith('ROCK');
+  });
+
+  it('si el envío falla, la jugada NO se sella y los botones siguen disponibles para reintentar', async () => {
+    const onMove = vi.fn().mockResolvedValue(false);
+    render(<GameArena {...arenaProps} onMove={onMove} />);
+    const rock = screen.getByRole('button', { name: /Piedra/ });
+    await waitFor(() => expect(rock).toBeEnabled(), { timeout: 3000 });
+    fireEvent.click(rock);
+    await waitFor(() => expect(onMove).toHaveBeenCalled());
+    expect(screen.queryByText(/Tu jugada está sellada/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Piedra/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /Papel/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /Tijera/ })).toBeEnabled();
+  });
+
+  it('mientras se espera a un rival real, los botones están desactivados y hay aviso', () => {
+    render(<GameArena {...arenaProps} onMove={vi.fn()} waitingForRealOpponent />);
+    expect(screen.getByText(/Esperando a un rival real/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Piedra/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Papel/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Tijera/ })).toBeDisabled();
+  });
+
+  it('empate 0–0: solo «Empate», sin «Perdiste», sin «Ganaste» y sin ganador', () => {
+    const draw: Match = {
+      ...match,
+      status: 'FINISHED',
+      score1: 0,
+      score2: 0,
+      winnerId: null,
+      finishedAt: new Date().toISOString(),
+    };
+    render(<GameArena {...arenaProps} match={draw} onMove={vi.fn()} />);
+    // El título es solo «Empate» (el marcador está en el marcador de
+    // arriba): nada de «Perdiste 0–0» ni de ganador.
+    expect(screen.getByText('Empate')).toBeInTheDocument();
+    expect(screen.queryByText(/Perdiste/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Ganaste/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ganó la partida/)).not.toBeInTheDocument();
+    expect(screen.getAllByText('La partida terminó en empate.')).toHaveLength(2);
+  });
+
+  it('ronda por tiempo: tarjeta de tiempo agotado con el motivo', () => {
+    render(
+      <GameArena
+        {...arenaProps}
+        onMove={vi.fn()}
+        roundTimeout={{ winnerIsMe: true, winnerName: 'Jhon' }}
+      />,
+    );
+    expect(screen.getByText(/Tu rival no jugó a tiempo/)).toBeInTheDocument();
+    expect(screen.queryByText(/Tu jugada está sellada/)).not.toBeInTheDocument();
+  });
+
+  it('WinnerCard en empate: sin trofeo, título «Empate» y texto neutro', () => {
+    render(
+      <WinnerCard
+        winnerName="Jhon"
+        loserName="Alcon"
+        scoreWinner={0}
+        scoreLoser={0}
+        formatLabel="Mejor de 3"
+        matchId="m1"
+        finishedAt={new Date().toISOString()}
+        isWinner={false}
+        isDraw
+      />,
+    );
+    expect(screen.getByText('Empate')).toBeInTheDocument();
+    expect(screen.getByText('0–0')).toBeInTheDocument();
+    expect(screen.queryByText(/ganó la partida/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Ganaste/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Perdiste/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/foto del trofeo/)).not.toBeInTheDocument();
+  });
+
+  it('WinnerCard con motivo de cierre: muestra la nota de abandono/tiempo', () => {
+    render(
+      <WinnerCard
+        winnerName="Jhon"
+        loserName="Alcon"
+        scoreWinner={1}
+        scoreLoser={0}
+        formatLabel="Mejor de 3"
+        matchId="m1"
+        finishedAt={new Date().toISOString()}
+        isWinner
+        finishNote="Victoria por abandono: tu rival abandonó la partida."
+      />,
+    );
+    expect(screen.getByText(/Victoria por abandono/)).toBeInTheDocument();
   });
 });
